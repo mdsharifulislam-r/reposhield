@@ -1,6 +1,6 @@
 {
   "name": "reposhield-scan",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "MD Shariful Islam",
   "description": "Read-only security scanner that detects suspicious, obfuscated, or compromised JavaScript/TypeScript code in repositories before it can execute.",
   "keywords": [
@@ -29,7 +29,10 @@
     },
     "./package.json": "./package.json"
   },
-  "bin": "./dist/cli.js",
+  "bin": {
+    "reposhield": "./dist/cli.js",
+    "reposhield-scan": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "docs",
