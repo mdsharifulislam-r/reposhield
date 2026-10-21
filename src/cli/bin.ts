@@ -7,11 +7,13 @@ const code = await main(process.argv.slice(2), {
   env: process.env,
   isTTY: Boolean(process.stdout.isTTY),
   onSignal(handler) {
-    process.on("SIGINT", handler);
-    process.on("SIGTERM", handler);
+    const onInterrupt = (): void => handler("SIGINT");
+    const onTerminate = (): void => handler("SIGTERM");
+    process.on("SIGINT", onInterrupt);
+    process.on("SIGTERM", onTerminate);
     return () => {
-      process.off("SIGINT", handler);
-      process.off("SIGTERM", handler);
+      process.off("SIGINT", onInterrupt);
+      process.off("SIGTERM", onTerminate);
     };
   },
 });

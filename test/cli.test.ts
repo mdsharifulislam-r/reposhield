@@ -132,6 +132,64 @@ describe("CLI output formats", () => {
 });
 
 describe("CLI commands", () => {
+  it("run blocks a command when the scan fails policy", async () => {
+    const root = bad();
+    const marker = path.join(root, "command-ran");
+    const code = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran")`;
+    const r = await run(["run", "--root", root, "--", process.execPath, "-e", code], root);
+    expect(r.code).toBe(EXIT.POLICY);
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(r.err).toContain("scan blocked the command, so it was not started");
+  });
+
+  it("run starts a passing command and returns its exit code", async () => {
+    const root = good();
+    const r = await run(["run", "--root", root, "--", process.execPath, "-e", "process.exit(7)"], root);
+    expect(r.code).toBe(7);
+    expect(r.err).toMatch(/scan passed.*not proof of safety.*Running:/);
+  });
+
+  it("run forwards arguments and allows a stricter policy threshold to be overridden", async () => {
+    const root = project({ "src/exfil.js": fixture("malicious/exfil.js.txt") });
+    const marker = path.join(root, "args.json");
+    const code = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(1)))`;
+    const r = await run(
+      [
+        "run",
+        "--root",
+        root,
+        "--fail-on",
+        "critical",
+        "--",
+        process.execPath,
+        "-e",
+        code,
+        "two words",
+        "--flag",
+      ],
+      root,
+    );
+    expect(r.code).toBe(EXIT.OK);
+    expect(JSON.parse(fs.readFileSync(marker, "utf8"))).toEqual(["two words", "--flag"]);
+  });
+
+  it("run rejects missing separators or commands and separators on other commands", async () => {
+    const root = good();
+    for (const args of [
+      ["run", "--"],
+      ["run", "next", "build"],
+      ["scan", "--", "echo", "no"],
+    ]) {
+      expect((await run(args, root)).code, args.join(" ")).toBe(EXIT.USAGE);
+    }
+  });
+
+  it("run returns 127 when the command cannot be started", async () => {
+    const root = good();
+    const r = await run(["run", "--root", root, "--", "reposhield-command-that-does-not-exist"], root);
+    expect(r.code).toBe(127);
+  });
+
   it("baseline create then compare", async () => {
     const root = project({ "src/a.js": fixture("malicious/exfil.js.txt") });
     const c = await run(["baseline", "create"], root);
@@ -189,7 +247,7 @@ describe("CLI commands", () => {
       env: {},
       isTTY: false,
       onSignal: (h) => {
-        stop = h;
+        stop = () => h("SIGINT");
         return () => undefined;
       },
     };

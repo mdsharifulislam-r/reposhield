@@ -28,6 +28,7 @@ npx reposhield-scan scan --mode ci            # deterministic output, non-zero e
 npx reposhield-scan scan --changed --base origin/main
 npx reposhield-scan scan --format json
 npx reposhield-scan scan --format sarif --output reposhield.sarif
+npx reposhield-scan run -- npm test        # scan first; run only when policy passes
 npx reposhield-scan baseline create           # accept current findings (critical excluded)
 npx reposhield-scan baseline compare          # show what is not accepted
 npx reposhield-scan recovery inspect          # read-only recovery plan
@@ -118,6 +119,22 @@ Allowlisted and baselined findings stay **visible** in reports but do not fail p
 
 `reposhield baseline create` writes `.reposhield-baseline.json` (the only file RepoShield ever writes, and only on this command). Entries use stable fingerprints with no raw secrets. **Critical findings are not accepted unless you pass `--include-critical`.** A baseline that changed relative to the base ref is itself flagged (`RS-BASE-001`), so an attacker cannot silently accept their own payload.
 
+### Gate any command: `run`
+
+`run` scans in `ci` mode with a `high` default threshold, then starts the requested command only when `report.safe` is true. Scan options go before `--`; the command and its arguments go after it:
+
+```json
+{
+  "scripts": {
+    "build": "reposhield run -- next build",
+    "start": "reposhield run -- next start",
+    "test": "reposhield run -- npm test"
+  }
+}
+```
+
+Use `--fail-on` to set the threshold explicitly, for example `reposhield run --fail-on medium -- npm test`. A pass is not proof of safety: this heuristic gate cannot stop someone from running `next build` directly or editing the package script. Enforce the scan in CI as well.
+
 ## Running it safely
 
 Order matters: **scan first, then install, build, or start.** `npm install` lifecycle scripts, `next build`, and `vite` all execute repository code.
@@ -128,7 +145,7 @@ Order matters: **scan first, then install, build, or start.** `npm install` life
 
 ### Servers and `server.ts`
 
-Calling `clean()` inside `server.ts` is too late if `server.ts` has static `import`s: ESM loads and runs every import **before** the file body, so your application code has already executed when the scan starts. Use a separate entry point that scans first and then loads the app with a dynamic `import()` ([examples/bootstrap.ts](examples/bootstrap.ts)):
+Calling a runtime scan inside `server.ts` is too late if `server.ts` has static `import`s: ESM loads and runs every import **before** the file body, so your application code has already executed when the scan starts. Use a separate entry point that scans first and then loads the app with a dynamic `import()` ([examples/bootstrap.ts](examples/bootstrap.ts)):
 
 ```ts
 import { clean } from "reposhield-scan";
@@ -139,7 +156,7 @@ if (!report.safe) process.exit(1);
 await import("./server.js"); // loaded only after the scan passed
 ```
 
-Even then, `reposhield` itself and your dependencies are already loaded. The safest pattern is an out-of-process scan before start: `"prestart": "reposhield scan --mode ci --fail-on high"`.
+Even then, RepoShield itself and its dependencies are already loaded. The safest pattern is an out-of-process scan before start, using `prestart` or `run`.
 
 Deploy order on a server ([examples/deploy.sh](examples/deploy.sh)): `git pull` → **scan** → `npm ci --ignore-scripts` → build → restart. Use `set -e` so a failed scan stops the deploy. Run the app as a non-root user.
 

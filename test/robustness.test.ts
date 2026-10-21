@@ -84,17 +84,20 @@ describe("malformed and unusual input", () => {
     expect(r.errors.some((e) => e.kind === "binary")).toBe(true);
   });
 
-  it("strips terminal control characters from untrusted file names in text output", async () => {
-    const { generateReport } = await import("../src/index.js");
-    const root = project({});
-    fs.writeFileSync(path.join(root, "evil\u001b[2Jname.js"), fixture("malicious/shell-pipe.js.txt"));
-    const text = generateReport(await scan({ root }), { format: "text" });
-    expect(text).not.toContain("\u001b[2J");
-  });
+  it.skipIf(process.platform === "win32")(
+    "strips terminal control characters from untrusted file names in text output",
+    async () => {
+      const { generateReport } = await import("../src/index.js");
+      const root = project({});
+      fs.writeFileSync(path.join(root, "evil\u001b[2Jname.js"), fixture("malicious/shell-pipe.js.txt"));
+      const text = generateReport(await scan({ root }), { format: "text" });
+      expect(text).not.toContain("\u001b[2J");
+    },
+  );
 });
 
 describe("path and symlink safety", () => {
-  it("does not follow symlinks that leave the root", async () => {
+  it.skipIf(process.platform === "win32")("does not follow symlinks that leave the root", async () => {
     const outside = tmpDir();
     write(outside, "evil.js", fixture("malicious/shell-pipe.js.txt"));
     const root = project({ "src/ok.js": "export {}" });
@@ -108,33 +111,39 @@ describe("path and symlink safety", () => {
     }
   });
 
-  it("ignores in-root symlinks by default and follows them when asked", async () => {
-    const root = project({ "real/a.js": fixture("malicious/shell-pipe.js.txt") });
-    fs.symlinkSync(path.join(root, "real/a.js"), path.join(root, "alias.js"));
-    expect((await scan({ root })).findings.every((f) => f.file === "real/a.js")).toBe(true);
-    const followed = await scan({ root, followSymlinks: true });
-    expect(followed.findings.some((f) => f.file === "alias.js")).toBe(true);
-  });
+  it.skipIf(process.platform === "win32")(
+    "ignores in-root symlinks by default and follows them when asked",
+    async () => {
+      const root = project({ "real/a.js": fixture("malicious/shell-pipe.js.txt") });
+      fs.symlinkSync(path.join(root, "real/a.js"), path.join(root, "alias.js"));
+      expect((await scan({ root })).findings.every((f) => f.file === "real/a.js")).toBe(true);
+      const followed = await scan({ root, followSymlinks: true });
+      expect(followed.findings.some((f) => f.file === "alias.js")).toBe(true);
+    },
+  );
 
-  it("survives symlink loops", async () => {
+  it.skipIf(process.platform === "win32")("survives symlink loops", async () => {
     const root = project({ "a/x.js": "export {}" });
     fs.symlinkSync(root, path.join(root, "a/loop"));
     const r = await scan({ root, followSymlinks: true });
     expect(r.summary.filesScanned).toBe(1);
   });
 
-  it("scanFile rejects path traversal and escaping symlinks", async () => {
-    const outside = tmpDir();
-    write(outside, "evil.js", fixture("malicious/shell-pipe.js.txt"));
-    const root = project({ "src/ok.js": "export {}" });
-    fs.symlinkSync(path.join(outside, "evil.js"), path.join(root, "src/link.js"));
-    await expect(scanFile("../evil.js", { root })).rejects.toBeInstanceOf(ConfigError);
-    await expect(scanFile(path.join(outside, "evil.js"), { root })).rejects.toThrow(/outside the root/);
-    await expect(scanFile("src/link.js", { root })).rejects.toThrow(/symlink/);
-    await expect(scanFile("src/missing.js", { root })).rejects.toThrow(/not found/);
-    const ok = await scanFile("src/ok.js", { root });
-    expect(ok.summary.filesScanned).toBe(1);
-  });
+  it.skipIf(process.platform === "win32")(
+    "scanFile rejects path traversal and escaping symlinks",
+    async () => {
+      const outside = tmpDir();
+      write(outside, "evil.js", fixture("malicious/shell-pipe.js.txt"));
+      const root = project({ "src/ok.js": "export {}" });
+      fs.symlinkSync(path.join(outside, "evil.js"), path.join(root, "src/link.js"));
+      await expect(scanFile("../evil.js", { root })).rejects.toBeInstanceOf(ConfigError);
+      await expect(scanFile(path.join(outside, "evil.js"), { root })).rejects.toThrow(/outside the root/);
+      await expect(scanFile("src/link.js", { root })).rejects.toThrow(/symlink/);
+      await expect(scanFile("src/missing.js", { root })).rejects.toThrow(/not found/);
+      const ok = await scanFile("src/ok.js", { root });
+      expect(ok.summary.filesScanned).toBe(1);
+    },
+  );
 });
 
 describe("determinism, limits, cancellation", () => {

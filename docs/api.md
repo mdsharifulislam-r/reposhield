@@ -43,6 +43,8 @@ import {
 
 Invalid options throw `ConfigError` listing every problem.
 
+The CLI also provides `reposhield run [scan options] -- <command> [args...]`. It scans first and starts the requested command only when the report passes policy. This is a heuristic gate, not proof of safety, and cannot stop commands launched outside the wrapper; enforce scans in CI too. The scanner itself never executes scanned source.
+
 ## Functions
 
 - `clean(options?) → Promise<Report>`: alias of `scan`. Scans and reports only.

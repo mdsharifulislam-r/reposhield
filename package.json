@@ -1,6 +1,6 @@
 {
   "name": "reposhield-scan",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": "MD Shariful Islam",
   "description": "Read-only security scanner that detects suspicious, obfuscated, or compromised JavaScript/TypeScript code in repositories before it can execute.",
   "keywords": [
@@ -30,8 +30,8 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "reposhield": "./dist/cli.js",
-    "reposhield-scan": "./dist/cli.js"
+    "reposhield": "dist/cli.js",
+    "reposhield-scan": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -60,6 +60,7 @@
     "@babel/parser": "^7.26.0",
     "@babel/traverse": "^7.26.0",
     "@babel/types": "^7.26.0",
+    "cross-spawn": "^7.0.6",
     "ignore": "^6.0.2",
     "picomatch": "^4.0.2",
     "zod": "^3.24.0"
@@ -67,6 +68,7 @@
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/babel__traverse": "^7.20.6",
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.10.0",
     "@types/picomatch": "^3.0.1",
     "eslint": "^9.17.0",

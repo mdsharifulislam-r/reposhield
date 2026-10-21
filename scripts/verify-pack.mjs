@@ -9,14 +9,10 @@ if (!npmCli) {
   throw new Error("npm CLI path is unavailable; run this script with `npm run verify:pack`.");
 }
 
-const raw = execFileSync(
-  process.execPath,
-  [npmCli, "pack", "--dry-run", "--json", "--ignore-scripts"],
-  {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  },
-);
+const raw = execFileSync(process.execPath, [npmCli, "pack", "--dry-run", "--json", "--ignore-scripts"], {
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "ignore"],
+});
 const [pack] = JSON.parse(raw);
 const files = pack.files.map((f) => f.path).sort();
 

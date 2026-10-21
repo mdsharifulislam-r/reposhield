@@ -1,3 +1,5 @@
+import spawn from "cross-spawn";
+import { constants as osConstants } from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -30,7 +32,7 @@ export interface CliIO {
   env: NodeJS.ProcessEnv;
   isTTY: boolean;
   /** Registers a handler for termination signals; returns an unsubscribe function. */
-  onSignal?: (handler: () => void) => () => void;
+  onSignal?: (handler: (signal: NodeJS.Signals) => void) => () => void;
 }
 
 export const HELP = `RepoShield ${VERSION}: read-only scanner for suspicious JavaScript/TypeScript code in repositories.
@@ -41,6 +43,7 @@ result does not prove a repository is safe.
 
 USAGE
   reposhield scan [options]               Scan and report (default command)
+  reposhield run [scan options] -- <command> [args...]
   reposhield scan --changed               Only files changed relative to a Git ref
   reposhield baseline create              Accept current findings into .reposhield-baseline.json
   reposhield baseline compare             Show findings not accepted by the baseline
@@ -48,6 +51,11 @@ USAGE
   reposhield monitor                      Re-scan on an interval until stopped
   reposhield rules                        List detection rules
   reposhield file <path>                  Scan a single file
+
+RUN
+  Scans in ci mode and starts the command only when report.safe is true. The scan is
+  heuristic and a pass is not proof of safety. Put scan options before --; command
+  arguments after -- are passed through unchanged.
 
 OPTIONS
   --root <dir>             Project root (default: current directory)
@@ -77,6 +85,8 @@ EXIT CODES
   1  Policy violation: active findings at or above --fail-on (strict, ci, changed, or explicit --fail-on).
   2  Usage or configuration error.
   3  Runtime error (unreadable root, aborted scan, internal failure).
+  127 The run command could not be started.
+  128+signal The run command was terminated by a signal.
 
 Configuration files are JSON only; RepoShield never executes a JavaScript config.
 `;
@@ -203,14 +213,23 @@ async function emit(
 
 /** CLI entry point. Returns the process exit code instead of exiting. */
 export async function main(argv: string[], io: CliIO): Promise<number> {
+  const separator = argv.indexOf("--");
+  const commandArgs = separator < 0 ? undefined : argv.slice(separator + 1);
+  const cliArgs = separator < 0 ? argv : argv.slice(0, separator);
   let parsed;
   try {
-    parsed = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true, strict: true });
+    parsed = parseArgs({ args: cliArgs, options: OPTIONS, allowPositionals: true, strict: true });
   } catch (err) {
-    io.stderr(`reposhield: ${(err as Error).message}\nRun "reposhield --help" for usage.\n`);
+    io.stderr(
+      `reposhield: ${sanitizeForTerminal((err as Error).message)}\nRun "reposhield --help" for usage.\n`,
+    );
     return EXIT.USAGE;
   }
   const { values: v, positionals } = parsed;
+  if (separator >= 0 && positionals[0] !== "run") {
+    io.stderr('reposhield: The "--" command separator is only valid with "run".\n');
+    return EXIT.USAGE;
+  }
   if (v.help) {
     io.stdout(HELP);
     return EXIT.OK;
@@ -222,11 +241,40 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
 
   try {
     const [cmd = "scan", sub] = positionals;
+    if (commandArgs !== undefined && cmd !== "run")
+      throw new UsageError('The "--" command separator is only valid with "run".');
     const formatFlag = oneOf(v.format, FORMATS, "--format") as ReportFormat | undefined;
     const color =
       io.isTTY && !io.env["NO_COLOR"] && !v["no-color"] && !io.env["CI"] && (formatFlag ?? "text") === "text";
 
     switch (cmd) {
+      case "run": {
+        if (commandArgs === undefined)
+          throw new UsageError("Usage: reposhield run [scan options] -- <command> [args...]");
+        if (commandArgs.length === 0 || !commandArgs[0])
+          throw new UsageError("Usage: reposhield run [scan options] -- <command> [args...]");
+        if (sub || positionals.length > 1)
+          throw new UsageError('Put scan options before "--" and the command after it.');
+
+        const options = await buildOptions(v, io);
+        options.mode ??= "ci";
+        options.failOn ??= "high";
+        const report = await scan(options);
+        const text = generateReport(report, { format: formatFlag ?? "text", color });
+        const displayCommand = sanitizeForTerminal(commandArgs.join(" "));
+        if (!report.safe) {
+          if (v.output) await emit(text, v.output, io, `${formatFlag ?? "text"} report`);
+          else io.stderr(text);
+          io.stderr(`scan blocked the command, so it was not started: ${displayCommand}\n`);
+          return EXIT.POLICY;
+        }
+
+        if (v.output) await emit(text, v.output, io, `${formatFlag ?? "text"} report`);
+        io.stderr(
+          `scan passed with ${report.summary.activeFindings} active finding(s); this is not proof of safety. Running: ${displayCommand}\n`,
+        );
+        return await runCommand(commandArgs, io);
+      }
       case "scan": {
         if (sub)
           throw new UsageError(
@@ -337,4 +385,28 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
     io.stderr(`reposhield: unexpected error: ${sanitizeForTerminal((err as Error).message)}\n`);
     return EXIT.ERROR;
   }
+}
+
+async function runCommand(commandArgs: string[], io: CliIO): Promise<number> {
+  const [command, ...args] = commandArgs;
+  if (!command) return EXIT.USAGE;
+
+  return await new Promise<number>((resolve) => {
+    const child = spawn(command, args, {
+      cwd: io.cwd,
+      stdio: "inherit",
+    });
+    const offSignal = io.onSignal?.((signal) => {
+      child.kill(signal);
+    });
+    child.once("error", (error) => {
+      offSignal?.();
+      io.stderr(`reposhield: cannot start command: ${sanitizeForTerminal(error.message)}\n`);
+      resolve(127);
+    });
+    child.once("close", (code, signal) => {
+      offSignal?.();
+      resolve(code ?? 128 + (signal ? (osConstants.signals[signal] ?? 0) : 0));
+    });
+  });
 }
