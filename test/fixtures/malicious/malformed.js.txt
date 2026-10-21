@@ -1,0 +1,2 @@
+// Inert fixture: syntax that cannot be parsed.
+function (((  => {{{ eval(

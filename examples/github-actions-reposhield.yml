@@ -1,0 +1,46 @@
+# Copy to .github/workflows/reposhield.yml in the repository you want to protect.
+#
+# Adding this file does NOT protect anything by itself. See "Branch protection"
+# in docs/github-actions.md: the job must be marked as a required status check.
+name: RepoShield
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege. `security-events: write` is only needed for the SARIF upload step
+# and is available for private repositories only with GitHub Code Security enabled.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  reposhield:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history lets RepoShield mark findings introduced relative to the base branch.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Scan BEFORE installing or building anything. Install scripts and build
+      # tooling run repository code, so the scanner must come first.
+      # Pin the version you have reviewed; do not use "latest".
+      - name: Scan (fails the job on policy violations)
+        run: npx --yes reposhield@0.1.0 scan --mode ci --fail-on high --base origin/${{ github.base_ref || 'main' }} --format sarif --output reposhield.sarif
+
+      - name: Upload SARIF to code scanning
+        if: always() && hashFiles('reposhield.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reposhield.sarif
+          category: reposhield
+
+      # Only after the scan passed:
+      - run: npm ci --ignore-scripts
+      - run: npm test

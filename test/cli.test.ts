@@ -1,0 +1,203 @@
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { EXIT, main, type CliIO } from "../src/cli/main.js";
+import { fake, fixture, project, tmpDir } from "./helpers/project.js";
+
+async function run(args: string[], cwd: string): Promise<{ code: number; out: string; err: string }> {
+  let out = "";
+  let err = "";
+  const io: CliIO = { stdout: (s) => (out += s), stderr: (s) => (err += s), cwd, env: {}, isTTY: false };
+  const code = await main(args, io);
+  return { code, out, err };
+}
+
+const bad = (): string => project({ "src/run.js": fixture("malicious/shell-pipe.js.txt") });
+const good = (): string => project({ "src/ok.js": fixture("benign/plain.js.txt") });
+
+describe("CLI exit codes", () => {
+  it("audit mode reports findings but exits 0", async () => {
+    const r = await run(["scan"], bad());
+    expect(r.code).toBe(EXIT.OK);
+    expect(r.out).toContain("FAIL");
+    expect(r.out).toContain("RS-PROC-002");
+  });
+
+  it("strict and ci modes exit 1 on policy violations", async () => {
+    expect((await run(["scan", "--mode", "strict"], bad())).code).toBe(EXIT.POLICY);
+    expect((await run(["scan", "--mode", "ci"], bad())).code).toBe(EXIT.POLICY);
+  });
+
+  it("--fail-on makes audit mode enforce", async () => {
+    expect((await run(["scan", "--fail-on", "high"], bad())).code).toBe(EXIT.POLICY);
+    expect((await run(["scan", "--fail-on", "critical"], good())).code).toBe(EXIT.OK);
+  });
+
+  it("clean repositories exit 0 in every mode", async () => {
+    const root = good();
+    for (const mode of ["audit", "strict", "ci"])
+      expect((await run(["scan", "--mode", mode], root)).code).toBe(EXIT.OK);
+  });
+
+  it("usage and configuration errors exit 2 with a message", async () => {
+    const root = good();
+    for (const args of [
+      ["scan", "--mode", "turbo"],
+      ["scan", "--format", "xml"],
+      ["scan", "--nope"],
+      ["frobnicate"],
+      ["scan", "--root", "/not/here"],
+      ["baseline"],
+      ["scan", "--changed", "--mode", "ci"],
+      ["scan", "--max-file-size", "abc"],
+    ]) {
+      const r = await run(args, root);
+      expect(r.code, args.join(" ")).toBe(EXIT.USAGE);
+      expect(r.err).toMatch(/reposhield:/);
+    }
+  });
+
+  it("--help and --version work", async () => {
+    const h = await run(["--help"], good());
+    expect(h.code).toBe(0);
+    expect(h.out).toMatch(/EXIT CODES/);
+    expect(h.out).toMatch(/never executes scanned code/);
+    const v = await run(["--version"], good());
+    expect(v.out.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("CLI output formats", () => {
+  it("emits valid JSON with the documented shape", async () => {
+    const r = await run(["scan", "--format", "json", "--mode", "ci"], bad());
+    const j = JSON.parse(r.out);
+    expect(j.tool.name).toBe("reposhield");
+    expect(j.safe).toBe(false);
+    expect(Array.isArray(j.findings)).toBe(true);
+    expect(j.findings[0]).toEqual(
+      expect.objectContaining({
+        ruleId: expect.any(String),
+        severity: expect.any(String),
+        confidence: expect.any(String),
+        file: expect.any(String),
+        recommendation: expect.any(String),
+        fingerprint: expect.any(String),
+      }),
+    );
+    expect(j.generatedAt).toBeUndefined();
+  });
+
+  it("emits valid SARIF 2.1.0", async () => {
+    const root = project({
+      "src/run.js": fixture("malicious/shell-pipe.js.txt"),
+      "src/k.js": `const t = "${fake.github()}";\n`,
+    });
+    const r = await run(["scan", "--format", "sarif"], root);
+    const s = JSON.parse(r.out);
+    expect(s.version).toBe("2.1.0");
+    expect(s.$schema).toMatch(/sarif/);
+    const run0 = s.runs[0];
+    expect(run0.tool.driver.name).toBe("RepoShield");
+    expect(run0.results.length).toBeGreaterThan(1);
+    const ruleIds = new Set(run0.tool.driver.rules.map((x: { id: string }) => x.id));
+    for (const res of run0.results) {
+      expect(ruleIds.has(res.ruleId)).toBe(true);
+      expect(run0.tool.driver.rules[res.ruleIndex].id).toBe(res.ruleId);
+      expect(["error", "warning", "note"]).toContain(res.level);
+      const loc = res.locations[0].physicalLocation;
+      expect(loc.artifactLocation.uri).not.toMatch(/^\//);
+      expect(loc.region.startLine).toBeGreaterThanOrEqual(1);
+      expect(res.partialFingerprints["reposhieldFingerprint/v1"]).toMatch(/^[0-9a-f]+$/);
+    }
+    expect(r.out).not.toContain(fake.github());
+  });
+
+  it("writes reports to --output and keeps stdout clean", async () => {
+    const dir = tmpDir();
+    const r = await run(["scan", "--format", "json", "--output", "out/report.json", "--root", bad()], dir);
+    expect(r.out).toBe("");
+    expect(
+      JSON.parse(fs.readFileSync(path.join(dir, "out/report.json"), "utf8")).findings.length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("text output shows severity, confidence, file and line without color when not a TTY", async () => {
+    const r = await run(["scan"], bad());
+    expect(r.out).toMatch(/\[CRITICAL\] RS-PROC-002/);
+    expect(r.out).toMatch(/src\/run\.js/);
+    expect(r.out).toMatch(/\d+:\d+\s+confidence: high/);
+    // eslint-disable-next-line no-control-regex
+    expect(r.out).not.toMatch(/\u001b\[/);
+  });
+});
+
+describe("CLI commands", () => {
+  it("baseline create then compare", async () => {
+    const root = project({ "src/a.js": fixture("malicious/exfil.js.txt") });
+    const c = await run(["baseline", "create"], root);
+    expect(c.code).toBe(0);
+    expect(c.out).toMatch(/Baseline written/);
+    expect((await run(["baseline", "compare"], root)).code).toBe(0);
+    fs.writeFileSync(path.join(root, "src/b.js"), fixture("malicious/shell-pipe.js.txt"));
+    const cmp = await run(["baseline", "compare"], root);
+    expect(cmp.code).toBe(EXIT.POLICY);
+    expect(cmp.err).toMatch(/1 new|new,/);
+  });
+
+  it("changed mode needs no flags beyond --changed", async () => {
+    const r = await run(["scan", "--changed"], bad());
+    expect(r.out).toMatch(/mode=changed/);
+  });
+
+  it("scans a single file", async () => {
+    const root = bad();
+    const r = await run(["file", "src/run.js"], root);
+    expect(r.out).toContain("RS-PROC-002");
+    expect((await run(["file", "../x.js"], root)).code).toBe(EXIT.USAGE);
+  });
+
+  it("lists rules", async () => {
+    const r = await run(["rules"], good());
+    expect(r.out).toMatch(/RS-EXEC-002\s+critical/);
+    expect(JSON.parse((await run(["rules", "--format", "json"], good())).out).length).toBeGreaterThan(15);
+  });
+
+  it("reads a JSON config file and never executes JavaScript configuration", async () => {
+    const root = project({
+      "src/run.js": fixture("malicious/shell-pipe.js.txt"),
+      ".reposhieldrc.json": JSON.stringify({ disabledRules: ["RS-PROC-002"] }),
+    });
+    expect((await run(["scan", "--format", "json"], root)).out).not.toMatch(/RS-PROC-002/);
+    const evil = project({
+      "src/run.js": "export {}",
+      "reposhield.config.js": "require('fs').writeFileSync('pwned','x')",
+    });
+    await run(["scan"], evil);
+    expect(fs.existsSync(path.join(evil, "pwned"))).toBe(false);
+    const broken = project({ ".reposhieldrc.json": "{" });
+    expect((await run(["scan"], broken)).code).toBe(EXIT.USAGE);
+  });
+
+  it("monitor starts only on request and stops cleanly on a signal", async () => {
+    const root = good();
+    let out = "";
+    let stop: (() => void) | undefined;
+    const io: CliIO = {
+      stdout: (s) => (out += s),
+      stderr: () => undefined,
+      cwd: root,
+      env: {},
+      isTTY: false,
+      onSignal: (h) => {
+        stop = h;
+        return () => undefined;
+      },
+    };
+    const p = main(["monitor", "--interval", "1"], io);
+    await new Promise((r) => setTimeout(r, 700));
+    expect(out).toMatch(/cycle 1/);
+    stop?.();
+    expect(await p).toBe(0);
+    expect(out).toMatch(/Monitor stopped/);
+  });
+});

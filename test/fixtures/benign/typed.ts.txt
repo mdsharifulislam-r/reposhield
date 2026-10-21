@@ -1,0 +1,7 @@
+// Inert fixture: ordinary TypeScript.
+interface Item { id: number; name: string }
+export function byId<T extends Item>(list: T[], id: number): T | undefined {
+  return list.find((x) => x.id === id) as T | undefined;
+}
+enum Color { Red, Green }
+export const favorite: Color = Color.Green;

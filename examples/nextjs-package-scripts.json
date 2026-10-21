@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "security:scan": "reposhield scan --mode ci --fail-on high",
+    "predev": "npm run security:scan",
+    "prebuild": "npm run security:scan",
+    "dev": "next dev",
+    "build": "next build"
+  }
+}

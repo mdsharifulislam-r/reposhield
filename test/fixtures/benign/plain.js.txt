@@ -1,0 +1,5 @@
+// Inert fixture: ordinary application code.
+export function add(a, b) {
+  return a + b;
+}
+export const items = [1, 2, 3].map((n) => add(n, 1));
