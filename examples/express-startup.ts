@@ -2,9 +2,9 @@
 //
 // IMPORTANT: by the time this file runs, your application's module graph is
 // already being loaded. A scan here cannot protect against code that has already
-// executed. Prefer `reposhield scan` in CI and as a pre-start script (see README).
+// executed. Prefer `reposhield-scan scan` in CI and as a pre-start script (see README).
 import express from "express";
-import { clean } from "reposhield";
+import { clean } from "reposhield-scan";
 
 const report = await clean({ root: process.cwd(), mode: "strict", failOn: "high" });
 

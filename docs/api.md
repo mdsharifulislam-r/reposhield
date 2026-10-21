@@ -13,7 +13,7 @@ import {
   inspectRecovery,
   renderRecoveryPlan,
   monitor,
-} from "reposhield";
+} from "reposhield-scan";
 ```
 
 ## Options (`RepoShieldOptions`)

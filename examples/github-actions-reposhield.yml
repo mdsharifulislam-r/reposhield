@@ -32,7 +32,7 @@ jobs:
       # tooling run repository code, so the scanner must come first.
       # Pin the version you have reviewed; do not use "latest".
       - name: Scan (fails the job on policy violations)
-        run: npx --yes reposhield@0.1.0 scan --mode ci --fail-on high --base origin/${{ github.base_ref || 'main' }} --format sarif --output reposhield.sarif
+        run: npx --yes reposhield-scan@0.1.0 scan --mode ci --fail-on high --base origin/${{ github.base_ref || 'main' }} --format sarif --output reposhield.sarif
 
       - name: Upload SARIF to code scanning
         if: always() && hashFiles('reposhield.sarif') != ''

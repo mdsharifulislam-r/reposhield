@@ -6,13 +6,13 @@ RepoShield only reports and plans. It never changes your repository. If a findin
 
 - Do **not** run `npm install`, build, test, or start commands in the affected checkout.
 - Work on a copy or fresh clone; keep the original for evidence.
-- Run `reposhield recovery inspect` to list affected files, the suspect commit, and diff context.
+- Run `reposhield-scan recovery inspect` to list affected files, the suspect commit, and diff context.
 
 ## 2. Review (do not execute)
 
 - Read the flagged code as text. Decode encoded strings as text only.
 - `git log -p -- <file>` and `git blame <file>` to find who introduced it and when. Check whether the author or commit looks genuine (author, signature, unusual timing).
-- Compare with the last trusted commit (`reposhield baseline` records one).
+- Compare with the last trusted commit (`reposhield-scan baseline` records one).
 
 ## 3. Revert, carefully
 

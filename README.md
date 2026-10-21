@@ -1,4 +1,4 @@
-# RepoShield
+# RepoShield (`reposhield-scan`)
 
 A **read-only** scanner that looks for suspicious, obfuscated, or compromised JavaScript/TypeScript code in a repository _before_ it can run.
 
@@ -13,26 +13,26 @@ A **read-only** scanner that looks for suspicious, obfuscated, or compromised Ja
 ## Install
 
 ```bash
-npm install --save-dev reposhield        # project-local
-npx reposhield scan                      # or run without installing
+npm install --save-dev reposhield-scan        # project-local
+npx reposhield-scan scan                      # or run without installing
 ```
 
-Requires Node.js 18.18 or newer. Pin the version you have reviewed rather than using `latest`.
+The npm package is **`reposhield-scan`**. It installs the `reposhield` command (and `reposhield-scan` as an alias). Requires Node.js 18.18 or newer. Pin the version you have reviewed rather than using `latest`.
 
 ## Quick start
 
 ```bash
-npx reposhield scan                      # audit mode, human-readable output, exit 0
-npx reposhield scan --mode strict        # fail on medium and above
-npx reposhield scan --mode ci            # deterministic output, non-zero exit on violation
-npx reposhield scan --changed --base origin/main
-npx reposhield scan --format json
-npx reposhield scan --format sarif --output reposhield.sarif
-npx reposhield baseline create           # accept current findings (critical excluded)
-npx reposhield baseline compare          # show what is not accepted
-npx reposhield recovery inspect          # read-only recovery plan
-npx reposhield file path/to/file.js      # single file
-npx reposhield rules                     # list rules
+npx reposhield-scan scan                      # audit mode, human-readable output, exit 0
+npx reposhield-scan scan --mode strict        # fail on medium and above
+npx reposhield-scan scan --mode ci            # deterministic output, non-zero exit on violation
+npx reposhield-scan scan --changed --base origin/main
+npx reposhield-scan scan --format json
+npx reposhield-scan scan --format sarif --output reposhield.sarif
+npx reposhield-scan baseline create           # accept current findings (critical excluded)
+npx reposhield-scan baseline compare          # show what is not accepted
+npx reposhield-scan recovery inspect          # read-only recovery plan
+npx reposhield-scan file path/to/file.js      # single file
+npx reposhield-scan rules                     # list rules
 ```
 
 ### Exit codes
@@ -47,7 +47,7 @@ npx reposhield rules                     # list rules
 ## API
 
 ```ts
-import { clean } from "reposhield";
+import { clean } from "reposhield-scan";
 
 const report = await clean({
   root: process.cwd(),
@@ -131,7 +131,7 @@ Order matters: **scan first, then install, build, or start.** `npm install` life
 Calling `clean()` inside `server.ts` is too late if `server.ts` has static `import`s: ESM loads and runs every import **before** the file body, so your application code has already executed when the scan starts. Use a separate entry point that scans first and then loads the app with a dynamic `import()` ([examples/bootstrap.ts](examples/bootstrap.ts)):
 
 ```ts
-import { clean } from "reposhield";
+import { clean } from "reposhield-scan";
 
 const report = await clean({ root: process.cwd(), mode: "strict", failOn: "high" });
 if (!report.safe) process.exit(1);
@@ -176,4 +176,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Test fixt
 
 ## License
 
-License not yet selected. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
