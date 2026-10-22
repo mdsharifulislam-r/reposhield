@@ -132,6 +132,67 @@ describe("CLI output formats", () => {
 });
 
 describe("CLI commands", () => {
+  it("init previews by default, then preserves and gates existing scripts with --yes", async () => {
+    const packageText = JSON.stringify(
+      {
+        name: "sample-app",
+        scripts: {
+          prebuild: "node before.js",
+          build: "node api.js && tsc -b && vite build",
+          postbuild: "node after.js",
+          dev: "node api.js && vite",
+          start: "node dist/server.js",
+          test: "vitest run",
+          lint: "eslint .",
+          api: "node api.js",
+          "custom-build": "node api.js && vite build",
+          postinstall: "node postinstall-check.js",
+          prepublishOnly: "node release-check.js",
+          prepack: "node pack-check.js",
+        },
+      },
+      null,
+      2,
+    );
+    const root = project({ "package.json": packageText, "server.ts": "export {};\n" });
+
+    const preview = await run(["init", "--root", root], root);
+    expect(preview.code).toBe(EXIT.OK);
+    expect(preview.out).toMatch(/preview/i);
+    expect(fs.readFileSync(path.join(root, "package.json"), "utf8")).toBe(packageText);
+    expect(fs.existsSync(path.join(root, "reposhield-bootstrap.ts"))).toBe(false);
+
+    const applied = await run(["init", "--root", root, "--yes"], root);
+    expect(applied.code).toBe(EXIT.OK);
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    expect(pkg.scripts["reposhield:init:original:prebuild"]).toBe("node before.js");
+    expect(pkg.scripts["reposhield:init:original:build"]).toBe("node api.js && tsc -b && vite build");
+    expect(pkg.scripts.build).toMatch(/reposhield-scan@\d+\.\d+\.\d+ run -- npm --ignore-scripts run/);
+    expect(pkg.scripts.dev).toMatch(/reposhield-scan@\d+\.\d+\.\d+ run -- npm --ignore-scripts run/);
+    expect(pkg.scripts["reposhield:init:original:postbuild"]).toBe("node after.js");
+    expect(pkg.scripts["reposhield:init:original:start"]).toBe("node dist/server.js");
+    expect(pkg.scripts["reposhield:init:original:test"]).toBe("vitest run");
+    expect(pkg.scripts["reposhield:init:original:lint"]).toBe("eslint .");
+    expect(pkg.scripts.api).toMatch(/reposhield-scan@\d+\.\d+\.\d+ run -- npm --ignore-scripts run/);
+    expect(pkg.scripts["reposhield:init:original:api"]).toBe("node api.js");
+    expect(pkg.scripts["reposhield:init:original:custom-build"]).toBe("node api.js && vite build");
+    expect(pkg.scripts.postinstall).toMatch(/reposhield-scan@\d+\.\d+\.\d+ run -- npm --ignore-scripts run/);
+    expect(pkg.scripts["reposhield:init:original:postinstall"]).toBe("node postinstall-check.js");
+    expect(pkg.scripts["reposhield:init:original:prepublishOnly"]).toBe("node release-check.js");
+    expect(pkg.scripts["reposhield:init:original:prepack"]).toBe("node pack-check.js");
+    expect(pkg.dependencies["reposhield-scan"]).toMatch(/^\d+\.\d+\.\d+$/);
+    const bootstrap = fs.readFileSync(path.join(root, "reposhield-bootstrap.ts"), "utf8");
+    expect(bootstrap).toContain("clean(");
+    expect(bootstrap).toContain('await import("./server.js")');
+
+    const again = await run(["init", "--root", root, "--yes"], root);
+    expect(again.code).toBe(EXIT.OK);
+    const second = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    expect(
+      Object.keys(second.scripts).filter((name) => name.startsWith("reposhield:init:original:")).length,
+    ).toBe(12);
+  });
+
   it("scan --remove deletes only the suspicious VS Code task entry", async () => {
     const root = project({
       ".vscode/tasks.json": `{
@@ -147,6 +208,26 @@ describe("CLI commands", () => {
     expect(r.code).toBe(EXIT.OK);
     expect(tasks).not.toContain("bad.otf");
     expect(tasks).toContain("npm run build");
+  });
+
+  it("scan --remove previews critical source paths and requires --yes to delete them", async () => {
+    const root = project({ "src/loader.js": fixture("malicious/decode-exec.js.txt") });
+    const source = path.join(root, "src/loader.js");
+    const preview = await run(
+      ["scan", "--root", root, "--remove", "--remove-source", "--format", "json"],
+      root,
+    );
+    expect(preview.code).toBe(EXIT.OK);
+    expect(fs.existsSync(source)).toBe(true);
+    expect(JSON.parse(preview.out).notes.join(" ")).toContain("src/loader.js");
+
+    const applied = await run(
+      ["scan", "--root", root, "--remove", "--remove-source", "--yes", "--format", "json"],
+      root,
+    );
+    expect(applied.code).toBe(EXIT.OK);
+    expect(fs.existsSync(source)).toBe(false);
+    expect(JSON.parse(applied.out).notes.join(" ")).toMatch(/Deleted 1 critical source file/);
   });
 
   it("run --remove cleans the suspicious task before starting the command", async () => {

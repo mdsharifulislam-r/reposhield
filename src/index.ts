@@ -13,34 +13,44 @@ import {
   type RepoShieldOptions,
 } from "./core/options.js";
 import { runScan, scanSingleFile } from "./core/scanner.js";
-import { removeFlaggedVSCodeTasks } from "./core/remediate.js";
+import { remediateCriticalFindings } from "./core/remediate.js";
+import { sanitizeForTerminal } from "./core/redact.js";
 import { isActive } from "./core/scoring.js";
 import type { Finding, Report } from "./core/types.js";
 import { VERSION } from "./core/version.js";
 
-export type CleanOptions = RepoShieldOptions & { remove?: boolean };
+export type CleanOptions = RepoShieldOptions & { remove?: boolean; removeSource?: boolean };
 
 /**
  * Scan the repository. By default this is read-only; `remove: true` opts into
- * removing only critical suspicious task entries from `.vscode/tasks.json`.
+ * removing critical task/npm-script entries. Critical source files are only
+ * deleted when `removeSource: true` is explicitly provided.
  * `report.safe === true` means no policy violation was found, not that the repository is proven safe.
  */
 export async function clean(options: CleanOptions = {}): Promise<Report> {
-  const { remove = false, ...scanOptions } = options;
+  const { remove = false, removeSource = false, ...scanOptions } = options;
+  if (removeSource && !remove) throw new ConfigError("removeSource requires remove: true.");
   const report = await scan(scanOptions);
   if (!remove) return report;
 
-  const removed = await removeFlaggedVSCodeTasks(scanOptions.root ?? ".", report);
-  if (removed === 0) return report;
+  const remediation = await remediateCriticalFindings(scanOptions.root ?? ".", report, removeSource);
+  const structuredChanges = remediation.taskEntriesRemoved + remediation.packageScriptsRemoved;
+  const anyChanges = structuredChanges > 0 || remediation.sourceFilesRemoved > 0;
+  if (!anyChanges && remediation.sourceFilesPreview.length === 0) return report;
 
-  const cleaned = await scan(scanOptions);
-  return {
-    ...cleaned,
-    notes: [
-      ...cleaned.notes,
-      `Removed ${removed} suspicious VS Code task entr${removed === 1 ? "y" : "ies"}. Review the edited tasks file before running builds.`,
-    ],
-  };
+  const cleaned = anyChanges ? await scan(scanOptions) : report;
+  const notes = [...cleaned.notes];
+  if (structuredChanges > 0)
+    notes.push(
+      `Removed ${remediation.taskEntriesRemoved} VS Code task entr${remediation.taskEntriesRemoved === 1 ? "y" : "ies"} and ${remediation.packageScriptsRemoved} critical npm script entr${remediation.packageScriptsRemoved === 1 ? "y" : "ies"}.`,
+    );
+  if (remediation.sourceFilesRemoved > 0)
+    notes.push(`Deleted ${remediation.sourceFilesRemoved} critical source file(s) at explicit request.`);
+  else if (remediation.sourceFilesPreview.length > 0)
+    notes.push(
+      `Critical source files were not deleted. Review: ${remediation.sourceFilesPreview.map(sanitizeForTerminal).join(", ")}. To delete, use --remove-source --yes.`,
+    );
+  return { ...cleaned, notes };
 }
 
 /** Explicit scan entry point. Read-only; never executes scanned code. */

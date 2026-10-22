@@ -43,13 +43,15 @@ import {
 
 Invalid options throw `ConfigError` listing every problem.
 
-`clean()` accepts the usual scan options and an optional `remove?: boolean`. It is read-only by default. With `remove: true`, it removes only active critical task entries in `.vscode/tasks.json` that match `RS-VSC-001`, then rescans. It preserves unrelated tasks and font files. `scan()` remains read-only.
+`clean()` accepts the usual scan options plus `remove?: boolean` and `removeSource?: boolean`. It is read-only by default. With `remove: true`, it removes matched active critical VS Code task and npm-script entries, then previews critical JS/TS paths in report notes. `removeSource: true` explicitly deletes those entire source files. `scan()` remains read-only.
 
-The CLI also provides `reposhield run [scan options] -- <command> [args...]`. It scans first and starts the requested command only when the report passes policy. `reposhield scan --remove` and `run --remove` opt into the same task-only cleanup and rescan. This is a heuristic gate, not proof of safety, and cannot stop commands launched outside the wrapper; enforce scans in CI too. The scanner itself never executes scanned source.
+The CLI also provides `reposhield run [scan options] -- <command> [args...]`. It scans first and starts the requested command only when the report passes policy. `scan --remove` and `run --remove` remove matched task/script entries and preview source candidates. `--remove-source --yes` confirms whole-file source deletion. This is a heuristic gate, not proof of safety, and cannot stop commands launched outside the wrapper; enforce scans in CI too. The scanner itself never executes scanned source.
+
+`reposhield init` previews npm script changes; `reposhield init --yes` preserves every user-defined script, including lifecycle hooks, under `reposhield:init:original:*` and adds version-pinned scan wrappers. Init itself does not run package managers or scripts. If it finds `server.ts`, it can generate a separate bootstrap that calls `clean()` before dynamically importing the server; it does not inject a scan after static imports.
 
 ## Functions
 
-- `clean(options?) → Promise<Report>`: scans and reports; `{ remove: true }` explicitly enables the targeted task cleanup described above.
+- `clean(options?) → Promise<Report>`: scans and reports; `{ remove: true }` enables structured cleanup, while `{ remove: true, removeSource: true }` explicitly deletes whole critical source files.
 - `scan(options?) → Promise<Report>`
 - `scanFile(filePath, options?) → Promise<Report>`: refuses paths outside `root` and escaping symlinks.
 - `compareWithBaseline(options?) → { baselineFound, newFindings, accepted, resolved, report }`

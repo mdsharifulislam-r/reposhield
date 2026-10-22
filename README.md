@@ -29,6 +29,8 @@ npx reposhield-scan scan --changed --base origin/main
 npx reposhield-scan scan --format json
 npx reposhield-scan scan --format sarif --output reposhield.sarif
 npx reposhield-scan run -- npm test        # scan first; run only when policy passes
+npx reposhield-scan init                   # preview script wrappers; writes nothing
+npx reposhield-scan init --yes             # preserve and gate supported npm scripts
 npx reposhield-scan scan --remove          # opt-in: remove suspicious VS Code task entries
 npx reposhield-scan baseline create           # accept current findings (critical excluded)
 npx reposhield-scan baseline compare          # show what is not accepted
@@ -65,7 +67,7 @@ console.log(report.summary);
 console.log(report.findings);
 ```
 
-`clean()` is a compatibility alias for `scan()` and is read-only by default. `clean({ remove: true })` opts into removing only critical suspicious task entries from `.vscode/tasks.json`, then rescans; it does not delete font assets or arbitrary files. The CLI equivalent is `reposhield scan --remove`. Review the edited task file before running a build. `report.safe === true` means "no policy violation was found", never "proven safe".
+`clean()` is a compatibility alias for `scan()` and is read-only by default. `clean({ remove: true })` removes matched critical VS Code task/npm-script entries and previews critical JS/TS source paths. Add `removeSource: true` only after reviewing the candidates to delete those entire files. The CLI preview is `reposhield scan --remove --remove-source`; append `--yes` to confirm source deletion. It never deletes referenced font assets. `report.safe === true` means "no policy violation was found", never "proven safe".
 
 Exports: `clean`, `scan`, `scanFile`, `compareWithBaseline`, `createBaseline`, `generateReport`, `inspectRecovery`, `renderRecoveryPlan`, `monitor`, `ALL_RULES`, `optionsSchema`, and the types `Report`, `Finding`, `Severity`, `Confidence`, `Mode`. Both ESM and CommonJS are supported. Full reference: [docs/api.md](docs/api.md).
 
@@ -119,7 +121,7 @@ Allowlisted and baselined findings stay **visible** in reports but do not fail p
 
 ### Baselines
 
-`reposhield baseline create` writes `.reposhield-baseline.json`. This is the only normal scan-related write; `--remove` is a separate, explicit exception limited to suspicious VS Code task entries. Entries use stable fingerprints with no raw secrets. **Critical findings are not accepted unless you pass `--include-critical`.** A baseline that changed relative to the base ref is itself flagged (`RS-BASE-001`), so an attacker cannot silently accept their own payload.
+`reposhield baseline create` writes `.reposhield-baseline.json`. This is the only normal scan-related write; `--remove` is a separate, explicit exception for matched critical VS Code task and npm-script entries. Critical JS/TS files are previewed, not deleted, unless you also pass `--remove-source --yes`; that deletes the entire listed file. Review the diff and keep backups. Entries use stable fingerprints with no raw secrets. **Critical findings are not accepted unless you pass `--include-critical`.** A baseline that changed relative to the base ref is itself flagged (`RS-BASE-001`), so an attacker cannot silently accept their own payload.
 
 ### Gate any command: `run`
 
@@ -136,6 +138,10 @@ Allowlisted and baselined findings stay **visible** in reports but do not fail p
 ```
 
 Use `--fail-on` to set the threshold explicitly, for example `reposhield run --fail-on medium -- npm test`. A pass is not proof of safety: this heuristic gate cannot stop someone from running `next build` directly or editing the package script. Enforce the scan in CI as well.
+
+### Initialize npm scripts
+
+`reposhield init` previews changes without writing. `reposhield init --yes` preserves and gates every user-defined npm script (including custom scripts such as `api: "node api.js"` and lifecycle hooks) as `reposhield:init:original:*`; compound commands remain intact. Init does not run commands or lifecycle hooks or install packages. When npm later invokes a wrapped hook, its preserved command runs only after the scan passes. If a server entry is found, init also creates `reposhield-bootstrap.ts` and adds RepoShield to runtime `dependencies`; run `npm install --ignore-scripts` to update the lockfile. The bootstrap is separate because static imports in `server.ts` execute before that file's body.
 
 ## Running it safely
 
@@ -159,6 +165,8 @@ await import("./server.js"); // loaded only after the scan passed
 ```
 
 Even then, RepoShield itself and its dependencies are already loaded. The safest pattern is an out-of-process scan before start, using `prestart` or `run`.
+
+`reposhield init --yes` does not inject `clean()` into `server.ts`; it creates a separate `reposhield-bootstrap.ts` if it finds a server entry. The existing `start` command is preserved and gated out-of-process. To use the generated in-process bootstrap, configure your runtime/start entry to launch its compiled output after the build.
 
 Deploy order on a server ([examples/deploy.sh](examples/deploy.sh)): `git pull` → **scan** → `npm ci --ignore-scripts` → build → restart. Use `set -e` so a failed scan stops the deploy. Run the app as a non-root user.
 

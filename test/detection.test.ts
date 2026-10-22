@@ -99,7 +99,39 @@ describe("suspicious behaviour", () => {
     expect(updated).toContain("node build.js --font public/fonts/fa-solid-700.otf");
     expect(fs.existsSync(path.join(root, "public/fonts/fa-solid-700.otf"))).toBe(true);
     expect(report.findings.some((item) => item.ruleId === "RS-VSC-001")).toBe(false);
-    expect(report.notes.join(" ")).toMatch(/Removed 1 suspicious VS Code task entry/);
+    expect(report.notes.join(" ")).toMatch(/Removed 1 VS Code task entry/);
+  });
+
+  it("removes critical npm script entries but preserves unrelated package scripts", async () => {
+    const root = project({
+      "package.json": JSON.stringify({
+        name: "sample",
+        scripts: {
+          postinstall: "echo aWQ= | base64 -d | sh",
+          build: "vite build",
+        },
+      }),
+    });
+
+    const report = await clean({ root, includeGitHistory: false, remove: true });
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    expect(pkg.scripts.postinstall).toBeUndefined();
+    expect(pkg.scripts.build).toBe("vite build");
+    expect(report.findings.some((item) => item.ruleId === "RS-PKG-001")).toBe(false);
+  });
+
+  it("previews critical source deletion unless clean({ removeSource: true }) is explicit", async () => {
+    const source = fixture("malicious/decode-exec.js.txt");
+    const root = project({ "src/loader.js": source });
+    const file = path.join(root, "src/loader.js");
+
+    const preview = await clean({ root, includeGitHistory: false, remove: true });
+    expect(fs.existsSync(file)).toBe(true);
+    expect(preview.notes.join(" ")).toContain("src/loader.js");
+
+    const removed = await clean({ root, includeGitHistory: false, remove: true, removeSource: true });
+    expect(fs.existsSync(file)).toBe(false);
+    expect(removed.findings.some((item) => item.severity === "critical")).toBe(false);
   });
 
   it("flags a decoded payload that reaches eval as critical", async () => {

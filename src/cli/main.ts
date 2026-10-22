@@ -23,6 +23,7 @@ import {
 } from "../index.js";
 import { sanitizeForTerminal } from "../core/redact.js";
 import { CONFIDENCES, MODES, SEVERITIES, type Mode, type Report } from "../core/types.js";
+import { applyInit, inspectInit } from "./init.js";
 
 export const EXIT = { OK: 0, POLICY: 1, USAGE: 2, ERROR: 3 } as const;
 
@@ -39,12 +40,14 @@ export interface CliIO {
 export const HELP = `RepoShield ${VERSION}: read-only-by-default scanner for suspicious JavaScript/TypeScript code in repositories.
 
 It never executes scanned code or contacts URLs found in files. Scans are read-only unless
-you explicitly pass --remove, which removes only suspicious VS Code task entries. Findings
-are heuristic leads, not proof of malware, and a clean result does not prove a repository is safe.
+you explicitly pass --remove, which removes matched task/script entries. Source files are
+only deleted with the separate --remove-source --yes confirmation. Findings are heuristic
+leads, not proof of malware, and a clean result does not prove a repository is safe.
 
 USAGE
   reposhield scan [options]               Scan and report (default command)
   reposhield run [scan options] -- <command> [args...]
+  reposhield init [--yes]                 Preview or install scan-gated npm scripts
   reposhield scan --changed               Only files changed relative to a Git ref
   reposhield baseline create              Accept current findings into .reposhield-baseline.json
   reposhield baseline compare             Show findings not accepted by the baseline
@@ -58,6 +61,12 @@ RUN
   heuristic and a pass is not proof of safety. Put scan options before --; command
   arguments after -- are passed through unchanged.
 
+INIT
+  Preview preserves all user scripts under reposhield:init:original:* and adds
+  scan-gated wrappers. Pass --yes to write.
+  When server.ts is found, init also creates reposhield-bootstrap.ts; use it as
+  the entry point to scan before dynamically importing the server.
+
 OPTIONS
   --root <dir>             Project root (default: current directory)
   --mode <mode>            audit | strict | ci | changed | monitor (default: audit)
@@ -70,7 +79,9 @@ OPTIONS
   --ignore <glob>          Extra ignore pattern (repeatable)
   --baseline               Apply the default baseline file
   --baseline-file <path>   Apply or write a baseline at this path (inside the root)
-  --remove                 Remove only matching critical tasks from .vscode/tasks.json, then rescan
+  --remove                 Remove critical VS Code tasks and package script entries; preview source files
+  --remove-source          Also preview critical JS/TS files for whole-file deletion
+  --yes                    init: apply changes; scan/run: confirm --remove-source deletions
   --include-critical       baseline create: also accept critical findings (not recommended)
   --max-file-size <bytes>  Skip analysis of larger files (default: 1000000)
   --no-git                 Disable Git analysis
@@ -108,6 +119,8 @@ const OPTIONS = {
   baseline: { type: "boolean" },
   "baseline-file": { type: "string" },
   remove: { type: "boolean" },
+  "remove-source": { type: "boolean" },
+  yes: { type: "boolean" },
   "include-critical": { type: "boolean" },
   "max-file-size": { type: "string" },
   "no-git": { type: "boolean" },
@@ -244,8 +257,12 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
 
   try {
     const [cmd = "scan", sub] = positionals;
+    if (v.yes && cmd !== "init" && !(v.remove && v["remove-source"] && (cmd === "scan" || cmd === "run")))
+      throw new UsageError('--yes is only supported with "init" or confirmed source removal.');
     if (v.remove && cmd !== "scan" && cmd !== "run")
       throw new UsageError('--remove is only supported with "scan" or "run".');
+    if (v["remove-source"] && (!v.remove || (cmd !== "scan" && cmd !== "run")))
+      throw new UsageError('--remove-source requires --remove with "scan" or "run".');
     if (commandArgs !== undefined && cmd !== "run")
       throw new UsageError('The "--" command separator is only valid with "run".');
     const formatFlag = oneOf(v.format, FORMATS, "--format") as ReportFormat | undefined;
@@ -253,6 +270,32 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
       io.isTTY && !io.env["NO_COLOR"] && !v["no-color"] && !io.env["CI"] && (formatFlag ?? "text") === "text";
 
     switch (cmd) {
+      case "init": {
+        if (sub || positionals.length > 1)
+          throw new UsageError("Usage: reposhield init [--root <dir>] [--yes]");
+        const root = path.resolve(io.cwd, v.root ?? ".");
+        const result = v.yes ? await applyInit(root) : await inspectInit(root);
+        if (result.alreadyConfigured) {
+          io.stdout("RepoShield init: no changes needed.\n");
+          return EXIT.OK;
+        }
+        const action = v.yes ? "Applied" : "Preview (no files changed)";
+        io.stdout(
+          `${action}: RepoShield init for ${sanitizeForTerminal(path.relative(io.cwd, root) || ".")}\n`,
+        );
+        if (result.scripts.length) {
+          io.stdout(`  Gate scripts: ${result.scripts.map(sanitizeForTerminal).join(", ")}\n`);
+          io.stdout("  Preserve original commands as reposhield:init:original:* scripts.\n");
+        } else io.stdout("  No supported npm scripts need wrapping.\n");
+        if (result.createsBootstrap)
+          io.stdout("  Create reposhield-bootstrap.ts for clean() then dynamic server import.\n");
+        if (result.addsDependency)
+          io.stdout(
+            "  Add reposhield-scan to dependencies; run npm install --ignore-scripts to update the lockfile.\n",
+          );
+        if (!v.yes) io.stdout("Run reposhield init --yes to apply this preview.\n");
+        return EXIT.OK;
+      }
       case "run": {
         if (commandArgs === undefined)
           throw new UsageError("Usage: reposhield run [scan options] -- <command> [args...]");
@@ -264,7 +307,9 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
         const options = await buildOptions(v, io);
         options.mode ??= "ci";
         options.failOn ??= "high";
-        const report = v.remove ? await clean({ ...options, remove: true }) : await scan(options);
+        const report = v.remove
+          ? await clean({ ...options, remove: true, removeSource: Boolean(v["remove-source"] && v.yes) })
+          : await scan(options);
         const text = generateReport(report, { format: formatFlag ?? "text", color });
         const displayCommand = sanitizeForTerminal(commandArgs.join(" "));
         if (!report.safe) {
@@ -286,7 +331,9 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
             `Unexpected argument "${sub}". Use "reposhield file <path>" to scan one file.`,
           );
         const options = await buildOptions(v, io);
-        const report = v.remove ? await clean({ ...options, remove: true }) : await scan(options);
+        const report = v.remove
+          ? await clean({ ...options, remove: true, removeSource: Boolean(v["remove-source"] && v.yes) })
+          : await scan(options);
         const text = generateReport(report, { format: formatFlag ?? "text", color });
         await emit(text, v.output, io, `${formatFlag ?? "text"} report`);
         return shouldFail(report, report.mode, v["fail-on"] !== undefined || options.failOn !== undefined)

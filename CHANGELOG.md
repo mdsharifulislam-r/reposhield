@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 (unreleased)
+
+- Add preview-first `reposhield init` to preserve and gate existing npm scripts.
+- Generate a separate scan-first server bootstrap when a server TypeScript entry is present.
+- Remove matched critical npm scripts as well as VS Code tasks; preview critical source deletion unless explicitly confirmed.
+
+## 0.3.2 (2026-10-22)
+
 ## 0.3.0 (unreleased)
 
 - Add critical detection for VS Code tasks that execute font assets as code, download and execute content, or run encoded commands.
