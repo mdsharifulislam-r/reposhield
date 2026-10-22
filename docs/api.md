@@ -43,11 +43,13 @@ import {
 
 Invalid options throw `ConfigError` listing every problem.
 
-The CLI also provides `reposhield run [scan options] -- <command> [args...]`. It scans first and starts the requested command only when the report passes policy. This is a heuristic gate, not proof of safety, and cannot stop commands launched outside the wrapper; enforce scans in CI too. The scanner itself never executes scanned source.
+`clean()` accepts the usual scan options and an optional `remove?: boolean`. It is read-only by default. With `remove: true`, it removes only active critical task entries in `.vscode/tasks.json` that match `RS-VSC-001`, then rescans. It preserves unrelated tasks and font files. `scan()` remains read-only.
+
+The CLI also provides `reposhield run [scan options] -- <command> [args...]`. It scans first and starts the requested command only when the report passes policy. `reposhield scan --remove` and `run --remove` opt into the same task-only cleanup and rescan. This is a heuristic gate, not proof of safety, and cannot stop commands launched outside the wrapper; enforce scans in CI too. The scanner itself never executes scanned source.
 
 ## Functions
 
-- `clean(options?) → Promise<Report>`: alias of `scan`. Scans and reports only.
+- `clean(options?) → Promise<Report>`: scans and reports; `{ remove: true }` explicitly enables the targeted task cleanup described above.
 - `scan(options?) → Promise<Report>`
 - `scanFile(filePath, options?) → Promise<Report>`: refuses paths outside `root` and escaping symlinks.
 - `compareWithBaseline(options?) → { baselineFound, newFindings, accepted, resolved, report }`

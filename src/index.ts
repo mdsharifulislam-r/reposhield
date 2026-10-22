@@ -13,17 +13,34 @@ import {
   type RepoShieldOptions,
 } from "./core/options.js";
 import { runScan, scanSingleFile } from "./core/scanner.js";
+import { removeFlaggedVSCodeTasks } from "./core/remediate.js";
 import { isActive } from "./core/scoring.js";
 import type { Finding, Report } from "./core/types.js";
 import { VERSION } from "./core/version.js";
 
+export type CleanOptions = RepoShieldOptions & { remove?: boolean };
+
 /**
- * Scan the repository and return a report. Despite the name, this never
- * modifies, deletes, or rewrites anything: it scans and reports.
+ * Scan the repository. By default this is read-only; `remove: true` opts into
+ * removing only critical suspicious task entries from `.vscode/tasks.json`.
  * `report.safe === true` means no policy violation was found, not that the repository is proven safe.
  */
-export async function clean(options: RepoShieldOptions = {}): Promise<Report> {
-  return scan(options);
+export async function clean(options: CleanOptions = {}): Promise<Report> {
+  const { remove = false, ...scanOptions } = options;
+  const report = await scan(scanOptions);
+  if (!remove) return report;
+
+  const removed = await removeFlaggedVSCodeTasks(scanOptions.root ?? ".", report);
+  if (removed === 0) return report;
+
+  const cleaned = await scan(scanOptions);
+  return {
+    ...cleaned,
+    notes: [
+      ...cleaned.notes,
+      `Removed ${removed} suspicious VS Code task entr${removed === 1 ? "y" : "ies"}. Review the edited tasks file before running builds.`,
+    ],
+  };
 }
 
 /** Explicit scan entry point. Read-only; never executes scanned code. */

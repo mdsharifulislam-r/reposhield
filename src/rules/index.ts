@@ -1,6 +1,7 @@
 import { JS_RULES } from "./js-rules.js";
 import { PACKAGE_RULE_META } from "./package.js";
 import { SECRET_RULE_META } from "./secrets.js";
+import { VSCODE_TASK_RULE_META } from "./vscode.js";
 import type { RuleMeta } from "./types.js";
 
 export const SCAN_RULE_META: RuleMeta[] = [
@@ -40,6 +41,7 @@ export const ALL_RULES: RuleMeta[] = [
   })),
   SECRET_RULE_META,
   ...PACKAGE_RULE_META,
+  VSCODE_TASK_RULE_META,
   ...SCAN_RULE_META,
 ].sort((a, b) => (a.id < b.id ? -1 : 1));
 

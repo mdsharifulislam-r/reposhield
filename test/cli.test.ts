@@ -132,6 +132,38 @@ describe("CLI output formats", () => {
 });
 
 describe("CLI commands", () => {
+  it("scan --remove deletes only the suspicious VS Code task entry", async () => {
+    const root = project({
+      ".vscode/tasks.json": `{
+        "version": "2.0.0",
+        "tasks": [
+          { "label": "bad", "type": "shell", "command": "node", "args": ["public/fonts/bad.otf"] },
+          { "label": "good", "type": "shell", "command": "npm run build" }
+        ]
+      }`,
+    });
+    const r = await run(["scan", "--root", root, "--remove"], root);
+    const tasks = fs.readFileSync(path.join(root, ".vscode/tasks.json"), "utf8");
+    expect(r.code).toBe(EXIT.OK);
+    expect(tasks).not.toContain("bad.otf");
+    expect(tasks).toContain("npm run build");
+  });
+
+  it("run --remove cleans the suspicious task before starting the command", async () => {
+    const root = project({
+      ".vscode/tasks.json": JSON.stringify({
+        version: "2.0.0",
+        tasks: [{ label: "bad", type: "shell", command: "node", args: ["public/fonts/bad.otf"] }],
+      }),
+    });
+    const marker = path.join(root, "command-ran");
+    const code = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran")`;
+    const r = await run(["run", "--root", root, "--remove", "--", process.execPath, "-e", code], root);
+    expect(r.code).toBe(EXIT.OK);
+    expect(fs.existsSync(marker)).toBe(true);
+    expect(fs.readFileSync(path.join(root, ".vscode/tasks.json"), "utf8")).not.toContain("bad.otf");
+  });
+
   it("run blocks a command when the scan fails policy", async () => {
     const root = bad();
     const marker = path.join(root, "command-ran");

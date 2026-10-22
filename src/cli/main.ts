@@ -9,6 +9,7 @@ import {
   ConfigError,
   FORMATS,
   VERSION,
+  clean,
   compareWithBaseline,
   createBaseline,
   generateReport,
@@ -35,11 +36,11 @@ export interface CliIO {
   onSignal?: (handler: (signal: NodeJS.Signals) => void) => () => void;
 }
 
-export const HELP = `RepoShield ${VERSION}: read-only scanner for suspicious JavaScript/TypeScript code in repositories.
+export const HELP = `RepoShield ${VERSION}: read-only-by-default scanner for suspicious JavaScript/TypeScript code in repositories.
 
-It never executes scanned code, never contacts URLs found in files, and never changes your
-repository during a scan. Findings are heuristic leads, not proof of malware, and a clean
-result does not prove a repository is safe.
+It never executes scanned code or contacts URLs found in files. Scans are read-only unless
+you explicitly pass --remove, which removes only suspicious VS Code task entries. Findings
+are heuristic leads, not proof of malware, and a clean result does not prove a repository is safe.
 
 USAGE
   reposhield scan [options]               Scan and report (default command)
@@ -69,6 +70,7 @@ OPTIONS
   --ignore <glob>          Extra ignore pattern (repeatable)
   --baseline               Apply the default baseline file
   --baseline-file <path>   Apply or write a baseline at this path (inside the root)
+  --remove                 Remove only matching critical tasks from .vscode/tasks.json, then rescan
   --include-critical       baseline create: also accept critical findings (not recommended)
   --max-file-size <bytes>  Skip analysis of larger files (default: 1000000)
   --no-git                 Disable Git analysis
@@ -105,6 +107,7 @@ const OPTIONS = {
   ignore: { type: "string", multiple: true },
   baseline: { type: "boolean" },
   "baseline-file": { type: "string" },
+  remove: { type: "boolean" },
   "include-critical": { type: "boolean" },
   "max-file-size": { type: "string" },
   "no-git": { type: "boolean" },
@@ -241,6 +244,8 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
 
   try {
     const [cmd = "scan", sub] = positionals;
+    if (v.remove && cmd !== "scan" && cmd !== "run")
+      throw new UsageError('--remove is only supported with "scan" or "run".');
     if (commandArgs !== undefined && cmd !== "run")
       throw new UsageError('The "--" command separator is only valid with "run".');
     const formatFlag = oneOf(v.format, FORMATS, "--format") as ReportFormat | undefined;
@@ -259,7 +264,7 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
         const options = await buildOptions(v, io);
         options.mode ??= "ci";
         options.failOn ??= "high";
-        const report = await scan(options);
+        const report = v.remove ? await clean({ ...options, remove: true }) : await scan(options);
         const text = generateReport(report, { format: formatFlag ?? "text", color });
         const displayCommand = sanitizeForTerminal(commandArgs.join(" "));
         if (!report.safe) {
@@ -281,7 +286,7 @@ export async function main(argv: string[], io: CliIO): Promise<number> {
             `Unexpected argument "${sub}". Use "reposhield file <path>" to scan one file.`,
           );
         const options = await buildOptions(v, io);
-        const report = await scan(options);
+        const report = v.remove ? await clean({ ...options, remove: true }) : await scan(options);
         const text = generateReport(report, { format: formatFlag ?? "text", color });
         await emit(text, v.output, io, `${formatFlag ?? "text"} report`);
         return shouldFail(report, report.mode, v["fail-on"] !== undefined || options.failOn !== undefined)

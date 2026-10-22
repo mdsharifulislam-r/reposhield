@@ -13,6 +13,7 @@ import {
   parsePackageJson,
 } from "../rules/package.js";
 import { secretFindings } from "../rules/secrets.js";
+import { inspectVSCodeTasks } from "../rules/vscode.js";
 import { loc, type RawFinding } from "../rules/types.js";
 import { applyBaseline, loadBaseline, type Baseline, type BaselineEntry } from "./baseline.js";
 import {
@@ -206,6 +207,9 @@ async function analyzeFile(f: WalkedFile, opts: ResolvedOptions, git: GitAnalysi
       raws.push(...analyzeNpmrc(f.rel, text), ...secretFindings(f.rel, text, true));
       break;
     default:
+      if (/(^|\/)\.vscode\/tasks\.json$/i.test(f.rel)) {
+        raws.push(...inspectVSCodeTasks(f.rel, text).findings);
+      }
       raws.push(...secretFindings(f.rel, text, false));
   }
   return { raws, errors, scanned: true };

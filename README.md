@@ -1,6 +1,6 @@
 # RepoShield (`reposhield-scan`)
 
-A **read-only** scanner that looks for suspicious, obfuscated, or compromised JavaScript/TypeScript code in a repository _before_ it can run.
+A **read-only-by-default** scanner that looks for suspicious, obfuscated, or compromised JavaScript/TypeScript code in a repository _before_ it can run. An explicit `--remove` option can remove narrowly matched suspicious VS Code task entries.
 
 - Parses code with Babel; it **never executes, evaluates, or imports** what it scans.
 - **Never contacts** URLs found in files, never runs lifecycle scripts, never installs packages.
@@ -29,6 +29,7 @@ npx reposhield-scan scan --changed --base origin/main
 npx reposhield-scan scan --format json
 npx reposhield-scan scan --format sarif --output reposhield.sarif
 npx reposhield-scan run -- npm test        # scan first; run only when policy passes
+npx reposhield-scan scan --remove          # opt-in: remove suspicious VS Code task entries
 npx reposhield-scan baseline create           # accept current findings (critical excluded)
 npx reposhield-scan baseline compare          # show what is not accepted
 npx reposhield-scan recovery inspect          # read-only recovery plan
@@ -64,7 +65,7 @@ console.log(report.summary);
 console.log(report.findings);
 ```
 
-`clean()` is a compatibility alias for `scan()`. **It scans and reports; it never cleans, deletes, or rewrites anything.** `report.safe === true` means "no policy violation was found", never "proven safe".
+`clean()` is a compatibility alias for `scan()` and is read-only by default. `clean({ remove: true })` opts into removing only critical suspicious task entries from `.vscode/tasks.json`, then rescans; it does not delete font assets or arbitrary files. The CLI equivalent is `reposhield scan --remove`. Review the edited task file before running a build. `report.safe === true` means "no policy violation was found", never "proven safe".
 
 Exports: `clean`, `scan`, `scanFile`, `compareWithBaseline`, `createBaseline`, `generateReport`, `inspectRecovery`, `renderRecoveryPlan`, `monitor`, `ALL_RULES`, `optionsSchema`, and the types `Report`, `Finding`, `Severity`, `Confidence`, `Mode`. Both ESM and CommonJS are supported. Full reference: [docs/api.md](docs/api.md).
 
@@ -84,6 +85,7 @@ Run `reposhield rules` for the live list. Highlights:
 
 - **Execution**: `eval`/`new Function` with non-literal input; decoded payload reaching an execution sink (`RS-EXEC-002`); remote content executed (`RS-DL-001`); shell commands matching attack patterns such as `curl … | sh` (`RS-PROC-002`).
 - **Obfuscation**: hex-identifier obfuscation, encoded blobs that decode to executable-looking text, string-concatenated `require`, computed `globalThis["ev"+"al"]`.
+- **VS Code tasks**: critical findings when a task executes a font asset as code, downloads and executes remote content, or runs an encoded command. A font file or task by itself is not considered malicious.
 - **Exfiltration**: environment variables, tokens, or credential files sent over the network.
 - **Config files**: load-time network/process activity in `vite.config.*`, `next.config.*`, `postcss.config.*`, `tailwind.config.*`, `webpack.config.*`, and similar. The same construct scores higher in a config file or when newly introduced; ordinary configs are not flagged.
 - **Packages**: install-time lifecycle scripts, Git/URL dependencies, look-alike names, unpinned ranges, lockfile inconsistencies and untrusted resolution sources, risky `.npmrc` settings. This is **offline** analysis; RepoShield does not look up registry reputation.
@@ -117,7 +119,7 @@ Allowlisted and baselined findings stay **visible** in reports but do not fail p
 
 ### Baselines
 
-`reposhield baseline create` writes `.reposhield-baseline.json` (the only file RepoShield ever writes, and only on this command). Entries use stable fingerprints with no raw secrets. **Critical findings are not accepted unless you pass `--include-critical`.** A baseline that changed relative to the base ref is itself flagged (`RS-BASE-001`), so an attacker cannot silently accept their own payload.
+`reposhield baseline create` writes `.reposhield-baseline.json`. This is the only normal scan-related write; `--remove` is a separate, explicit exception limited to suspicious VS Code task entries. Entries use stable fingerprints with no raw secrets. **Critical findings are not accepted unless you pass `--include-critical`.** A baseline that changed relative to the base ref is itself flagged (`RS-BASE-001`), so an attacker cannot silently accept their own payload.
 
 ### Gate any command: `run`
 
@@ -168,7 +170,7 @@ Deploy order on a server ([examples/deploy.sh](examples/deploy.sh)): `git pull` 
 
 - Scanned code is parsed, never executed; URLs are never fetched; scripts are never run.
 - Git is invoked read-only through an allowlist of subcommands, with hooks and fsmonitor disabled; option-like refs are rejected.
-- Scans do not modify the working tree, index, refs, or history.
+- Normal scans do not modify the working tree, index, refs, or history. `--remove` is an explicit exception that edits only suspicious task entries in `.vscode/tasks.json`; it never deletes font assets or general source files.
 - Symlinks leaving the root are not followed; `scanFile` rejects path traversal.
 - File names and content are treated as untrusted; terminal control characters are stripped from output.
 - Secrets are redacted in text, JSON, SARIF, baselines, and recovery diffs.
@@ -179,6 +181,7 @@ Deploy order on a server ([examples/deploy.sh](examples/deploy.sh)): `git pull` 
 - It reads the files on disk and the Git history it can see; shallow clones limit "newly introduced" detection.
 - No registry or reputation lookups; dependency findings are offline heuristics.
 - Look-alike and typosquat checks use a small built-in list of popular packages.
+- VS Code task detection is heuristic. `--remove` removes task entries matching the rule, not the referenced asset; review its diff and verify the payload separately.
 - A clean report means "nothing matched these rules", not "safe".
 
 ## Development

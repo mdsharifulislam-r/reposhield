@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- Add critical detection for VS Code tasks that execute font assets as code, download and execute content, or run encoded commands.
+- Add opt-in `--remove` and `clean({ remove: true })` to remove only matching task entries and rescan.
+
 ## 0.2.0 (unreleased)
 
 - Rename the npm package to `reposhield-scan` while retaining the `reposhield` CLI command and alias.
