@@ -1,6 +1,6 @@
 {
   "name": "reposhield-scan",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": "MD Shariful Islam",
   "description": "Read-only-by-default security scanner that detects suspicious, obfuscated, or compromised JavaScript/TypeScript code before it can execute, with opt-in cleanup for flagged VS Code task entries.",
   "keywords": [
