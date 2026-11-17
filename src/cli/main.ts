@@ -20,7 +20,7 @@ import {
   scanFile,
   type ReportFormat,
   type RepoShieldOptions,
-} from "../index.js";
+} from "../engine.js";
 import { sanitizeForTerminal } from "../core/redact.js";
 import { CONFIDENCES, MODES, SEVERITIES, type Mode, type Report } from "../core/types.js";
 import { applyInit, inspectInit } from "./init.js";

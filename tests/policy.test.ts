@@ -90,14 +90,22 @@ describe('Policy Engine — Suppression Matching', () => {
 // ─── Policy Evaluation Tests ──────────────────────────────────────────────────
 
 describe('Policy Engine — Policy Evaluation', () => {
-  test('audit mode never triggers policy violation', () => {
+  test('audit mode treats critical findings as a policy violation', () => {
     const findings = [
       makeFinding({ severity: 'critical' }),
       makeFinding({ severity: 'high' }),
     ];
     const config = makeConfig();
     const result = evaluatePolicy(findings, [], [], [], config, 'audit');
-    expect(result.policyViolation).toBe(false);
+    expect(result.policyViolation).toBe(true);
+    expect(result.reasons.some((r) => r.includes('critical'))).toBe(true);
+  });
+
+  test('monitor mode treats critical findings as a policy violation', () => {
+    const findings = [makeFinding({ severity: 'critical' })];
+    const config = makeConfig();
+    const result = evaluatePolicy(findings, [], [], [], config, 'monitor');
+    expect(result.policyViolation).toBe(true);
   });
 
   test('strict mode blocks on critical findings', () => {

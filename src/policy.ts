@@ -70,7 +70,7 @@ export function evaluatePolicy(
   depFindings: DependencyFinding[],
   gitFindings: GitFinding[],
   config: RepoShieldConfig,
-  mode: ScanMode,
+  _mode: ScanMode,
 ): PolicyEvaluationResult {
   const policy = config.policy ?? {};
   const suppressions = config.suppressions ?? [];
@@ -101,72 +101,62 @@ export function evaluatePolicy(
   // Process secret findings
   const processedSecretFindings = secretFindings.map((sf) => sf);
 
-  // Check policy only in strict/ci modes (audit mode always passes)
-  const isEnforcing = mode === 'strict' || mode === 'ci';
-
-  if (isEnforcing) {
-    // Check for critical findings
-    const criticalFindings = processedFindings.filter(
-      (f) => f.severity === 'critical' && !f.suppressed,
+  // Every mode reports a policy violation when a finding crosses the
+  // configured threshold. Critical and high do so by default.
+  const criticalFindings = processedFindings.filter(
+    (f) => f.severity === 'critical' && !f.suppressed,
+  );
+  if ((policy.blockOnCritical ?? true) && criticalFindings.length > 0) {
+    policyViolation = true;
+    reasons.push(
+      `${criticalFindings.length} critical finding(s) detected and policy blocks on critical severity`,
     );
-    if ((policy.blockOnCritical ?? true) && criticalFindings.length > 0) {
-      policyViolation = true;
-      reasons.push(
-        `${criticalFindings.length} critical finding(s) detected and policy blocks on critical severity`,
-      );
-    }
+  }
 
-    // Check for high findings
-    const highFindings = processedFindings.filter((f) => f.severity === 'high' && !f.suppressed);
-    if ((policy.blockOnHigh ?? true) && highFindings.length > 0) {
-      policyViolation = true;
-      reasons.push(
-        `${highFindings.length} high severity finding(s) detected and policy blocks on high severity`,
-      );
-    }
-
-    // Check for medium findings
-    const mediumFindings = processedFindings.filter(
-      (f) => f.severity === 'medium' && !f.suppressed,
+  const highFindings = processedFindings.filter((f) => f.severity === 'high' && !f.suppressed);
+  if ((policy.blockOnHigh ?? true) && highFindings.length > 0) {
+    policyViolation = true;
+    reasons.push(
+      `${highFindings.length} high severity finding(s) detected and policy blocks on high severity`,
     );
-    if ((policy.blockOnMedium ?? false) && mediumFindings.length > 0) {
-      policyViolation = true;
-      reasons.push(
-        `${mediumFindings.length} medium severity finding(s) detected and policy blocks on medium severity`,
-      );
-    }
+  }
 
-    // Check for secrets
-    if ((policy.blockOnSecrets ?? true) && processedSecretFindings.length > 0) {
-      policyViolation = true;
-      reasons.push(`${processedSecretFindings.length} secret(s) detected`);
-    }
-
-    // Check dependency findings
-    const depSeverityThreshold = (policy.blockOnDependencyFindings as Severity) ?? 'high';
-    const blockedDepFindings = depFindings.filter(
-      (df) => compareSeverity(df.severity, depSeverityThreshold) >= 0,
+  const mediumFindings = processedFindings.filter(
+    (f) => f.severity === 'medium' && !f.suppressed,
+  );
+  if ((policy.blockOnMedium ?? false) && mediumFindings.length > 0) {
+    policyViolation = true;
+    reasons.push(
+      `${mediumFindings.length} medium severity finding(s) detected and policy blocks on medium severity`,
     );
-    if (blockedDepFindings.length > 0) {
-      policyViolation = true;
-      reasons.push(
-        `${blockedDepFindings.length} dependency finding(s) at or above "${depSeverityThreshold}" severity`,
-      );
-    }
+  }
 
-    // Check for critical git findings
-    const criticalGitFindings = gitFindings.filter((gf) => gf.severity === 'critical');
-    if (criticalGitFindings.length > 0) {
-      policyViolation = true;
-      reasons.push(`${criticalGitFindings.length} critical Git finding(s) detected`);
-    }
+  if ((policy.blockOnSecrets ?? true) && processedSecretFindings.length > 0) {
+    policyViolation = true;
+    reasons.push(`${processedSecretFindings.length} secret(s) detected`);
+  }
 
-    // Expired suppressions are reported but don't trigger violations
-    if (expiredSuppressions.length > 0) {
-      reasons.push(
-        `${expiredSuppressions.length} suppression(s) have expired and may need renewal or removal`,
-      );
-    }
+  const depSeverityThreshold = (policy.blockOnDependencyFindings as Severity) ?? 'high';
+  const blockedDepFindings = depFindings.filter(
+    (df) => compareSeverity(df.severity, depSeverityThreshold) >= 0,
+  );
+  if (blockedDepFindings.length > 0) {
+    policyViolation = true;
+    reasons.push(
+      `${blockedDepFindings.length} dependency finding(s) at or above "${depSeverityThreshold}" severity`,
+    );
+  }
+
+  const criticalGitFindings = gitFindings.filter((gf) => gf.severity === 'critical');
+  if (criticalGitFindings.length > 0) {
+    policyViolation = true;
+    reasons.push(`${criticalGitFindings.length} critical Git finding(s) detected`);
+  }
+
+  if (expiredSuppressions.length > 0) {
+    reasons.push(
+      `${expiredSuppressions.length} suppression(s) have expired and may need renewal or removal`,
+    );
   }
 
   return {

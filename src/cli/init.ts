@@ -31,7 +31,7 @@ function edit(text: string, jsonPath: (string | number)[], value: unknown): stri
 
 function bootstrapSource(serverEntry: string): string {
   const importPath = `./${serverEntry.replace(/\\/g, "/").replace(/\.ts$/, ".js")}`;
-  return `import { clean, generateReport } from "reposhield-scan";\n\nconst report = await clean({ root: process.cwd(), mode: "ci", failOn: "high" });\nprocess.stderr.write(generateReport(report, { format: "text" }));\n\nif (!report.safe) process.exit(1);\nawait import(${JSON.stringify(importPath)});\n`;
+  return `import { clean } from "reposhield-scan";\n\nconst summary = await clean({ root: process.cwd(), mode: "ci" });\nif (summary.policyViolation) {\n  for (const reason of summary.policyViolationReasons) console.error(reason);\n  process.exit(1);\n}\nawait import(${JSON.stringify(importPath)});\n`;
 }
 
 export async function inspectInit(root: string): Promise<InitPreview> {

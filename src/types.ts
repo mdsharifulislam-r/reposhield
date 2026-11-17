@@ -9,11 +9,11 @@
 /**
  * Scan mode controls behavior and exit-code semantics.
  *
- * - `audit`   : Inspect and report. Never block. Never modify files.
+ * - `audit`   : Inspect and report. A critical or high finding is a policy violation.
  * - `strict`  : Block on configured severity thresholds. No file modification.
  * - `ci`      : Machine-readable JSON output; non-zero exit on policy violation.
  * - `changed` : Inspect only files changed relative to a trusted baseline.
- * - `monitor` : Local watch mode. Not suitable for CI enforcement.
+ * - `monitor` : Local watch mode. Critical and high findings still violate policy.
  */
 export type ScanMode = 'audit' | 'strict' | 'ci' | 'changed' | 'monitor';
 

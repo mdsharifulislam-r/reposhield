@@ -29,3 +29,22 @@ Thumbs.db
 
 # npm
 .npm/
+
+# Windows reserves this name. Git cannot hash a file called nul.
+/nul
+
+# Local command output dumped in the repo root
+/*.txt
+/*.log
+/jest*.json
+/jest*.cjs
+/results*.json
+/res-now.json
+/summary.json
+/jj.json
+/analyze-*.cjs
+/now-report.cjs
+/run-tests.cjs
+/sumarize.cjs
+/tmp-show.cjs
+/tscheck.cjs

@@ -3,12 +3,17 @@
  * RepoShield CLI — Entry Point
  *
  * Implements:
- *   reposhield-scan init
+ *   reposhield-scan init [--yes]
  *   reposhield-scan scan [options]
+ *   reposhield-scan run -- <command>
  *   reposhield-scan report
  *   reposhield-scan doctor
- *   reposhield-scan recover --inspect
- *   reposhield-scan recover --to <sha>
+ *   reposhield-scan recover --inspect|--to|--revert
+ *   reposhield-scan recovery inspect
+ *   reposhield-scan file <path>
+ *   reposhield-scan baseline create|compare
+ *   reposhield-scan monitor
+ *   reposhield-scan rules
  */
 
 import { Command } from 'commander';
@@ -45,7 +50,9 @@ program
   .command('init')
   .description('Initialize reposhield configuration in the current repository')
   .option('--root <path>', 'Repository root', process.cwd())
-  .action(async (opts: { root: string }) => {
+  .option('--yes', 'Preserve npm scripts under reposhield:init:original:* and write scan wrappers')
+  .action(async (opts: { root: string; yes?: boolean }) => {
+    if (opts.yes) await runEngine();
     const root = path.resolve(opts.root as string);
     const configPath = path.join(root, 'reposhield.config.json');
 
@@ -86,13 +93,17 @@ program
   .option('--root <path>', 'Repository root', process.cwd())
   .option('--changed', 'Only scan changed files relative to base SHA')
   .option('--base <sha>', 'Trusted base SHA or branch reference for change-based scan')
-  .option('--format <format>', 'Output format: text or json', 'text')
   .option('--severity <level>', 'Minimum severity to report: critical, high, medium, low, info', 'info')
   .option('--history', 'Analyze recent Git commit history')
   .option('--mode <mode>', 'Scan mode: audit, strict, ci, changed', 'audit')
   .option('--no-cache', 'Disable result caching')
   .option('--quiet', 'Suppress progress output')
   .option('--output <file>', 'Write JSON report to file')
+  .option('--fail-on <severity>', 'Fail at this severity when using the extended scanner')
+  .option('--remove', 'Remove matched critical VS Code tasks and npm scripts, then preview source files')
+  .option('--remove-source', 'With --remove --yes, delete the previewed critical source files')
+  .option('--yes', 'Confirm --remove-source deletion')
+  .option('--format <format>', 'Output format: text, json, or sarif', 'text')
   .action(async (opts: {
     root: string;
     changed?: boolean;
@@ -104,7 +115,14 @@ program
     noCache?: boolean;
     quiet?: boolean;
     output?: string;
+    failOn?: string;
+    remove?: boolean;
+    removeSource?: boolean;
+    yes?: boolean;
   }) => {
+    if (opts.failOn || opts.remove || opts.removeSource || opts.yes || opts.format === 'sarif') {
+      await runEngine();
+    }
     const root = path.resolve(opts.root as string);
     const format = opts.format as string;
     const minSeverity = opts.severity as Severity;
@@ -335,6 +353,48 @@ program
     process.exit(EXIT_OK);
   });
 
+program
+  .command('run')
+  .description('Scan first, then start a command only when policy passes')
+  .allowUnknownOption()
+  .argument('[command...]')
+  .action(() => runEngine());
+
+program
+  .command('recovery')
+  .description('Read-only recovery plan: reposhield-scan recovery inspect')
+  .allowUnknownOption()
+  .argument('[action]')
+  .action(() => runEngine());
+
+program
+  .command('file')
+  .description('Scan a single file')
+  .argument('<path>')
+  .allowUnknownOption()
+  .action(() => runEngine());
+
+program
+  .command('baseline')
+  .description('Accept findings or compare them: baseline create | baseline compare')
+  .argument('<action>', 'create or compare')
+  .allowUnknownOption()
+  .action(() => runEngine());
+
+program
+  .command('monitor')
+  .description('Re-scan on an interval until stopped')
+  .option('--interval <seconds>', 'Seconds between scans', '30')
+  .option('--root <path>', 'Repository root', process.cwd())
+  .allowUnknownOption()
+  .action(() => runEngine());
+
+program
+  .command('rules')
+  .description('List detection rules')
+  .allowUnknownOption()
+  .action(() => runEngine());
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function printTextReport(summary: ScanSummary, quiet: boolean): void {
@@ -422,7 +482,7 @@ function printTextReport(summary: ScanSummary, quiet: boolean): void {
     console.log(
       totalIssues === 0
         ? '✅ No issues found'
-        : `✅ No policy violations (${totalIssues} informational finding(s))`,
+        : `✅ No policy violations (${totalIssues} finding(s) below the policy threshold)`,
     );
   }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -490,7 +550,65 @@ async function promptConfirm(question: string): Promise<boolean> {
 
 // ─── Parse and execute ────────────────────────────────────────────────────────
 
-program.parseAsync(process.argv).catch((err: unknown) => {
+const ENGINE_COMMANDS = new Set(['run', 'baseline', 'recovery', 'monitor', 'rules', 'file']);
+const ENGINE_FLAGS = [
+  '--fail-on',
+  '--min-confidence',
+  '--ignore',
+  '--baseline',
+  '--baseline-file',
+  '--remove',
+  '--remove-source',
+  '--yes',
+  '--include-critical',
+  '--max-file-size',
+  '--no-git',
+  '--no-gitignore',
+  '--follow-symlinks',
+  '--interval',
+  '--config',
+  '--no-color',
+];
+
+function shouldUseEngine(argv: string[]): boolean {
+  const cmd = argv.find((arg) => !arg.startsWith('-'));
+  if (cmd && ENGINE_COMMANDS.has(cmd)) return true;
+  const formatAt = argv.indexOf('--format');
+  if (formatAt >= 0 && argv[formatAt + 1] === 'sarif') return true;
+  return ENGINE_FLAGS.some((flag) => argv.includes(flag));
+}
+
+async function runEngine(): Promise<never> {
+  const { main } = await import('./main.js');
+  const code = await main(process.argv.slice(2), {
+    stdout: (s) => void process.stdout.write(s),
+    stderr: (s) => void process.stderr.write(s),
+    cwd: process.cwd(),
+    env: process.env,
+    isTTY: Boolean(process.stdout.isTTY),
+    onSignal(handler) {
+      const onInterrupt = (): void => handler('SIGINT');
+      const onTerminate = (): void => handler('SIGTERM');
+      process.on('SIGINT', onInterrupt);
+      process.on('SIGTERM', onTerminate);
+      return () => {
+        process.off('SIGINT', onInterrupt);
+        process.off('SIGTERM', onTerminate);
+      };
+    },
+  });
+  process.exit(code);
+}
+
+async function start(): Promise<void> {
+  if (shouldUseEngine(process.argv.slice(2))) {
+    await runEngine();
+    return;
+  }
+  await program.parseAsync(process.argv);
+}
+
+start().catch((err: unknown) => {
   console.error(`CLI error: ${String(err)}`);
   process.exit(EXIT_ERROR);
 });

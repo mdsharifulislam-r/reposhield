@@ -47,22 +47,79 @@ npm install --ignore-scripts --save-dev reposhield-scan
 
 ```bash
 npx reposhield-scan init
+npx reposhield-scan init --yes
+
 npx reposhield-scan scan
 npx reposhield-scan scan --mode ci --severity high
-npx reposhield-scan scan --mode changed --base main
-npx reposhield-scan scan --format json --output report.json
+npx reposhield-scan scan --remove
+npx reposhield-scan scan --remove --remove-source --yes
+npx reposhield-scan scan --format sarif --output reposhield.sarif
+
+npx reposhield-scan run -- npm test
+npx reposhield-scan run --fail-on medium -- npm test
+
+npx reposhield-scan report --input reposhield-report.json
 npx reposhield-scan doctor
+
+npx reposhield-scan recover --inspect
+npx reposhield-scan recover --to <trusted-sha>
+npx reposhield-scan recover --revert <sha>
+npx reposhield-scan recovery inspect
+
+npx reposhield-scan file path/to/file.js
+npx reposhield-scan baseline create
+npx reposhield-scan baseline compare
+npx reposhield-scan monitor
+npx reposhield-scan rules
 ```
 
 | Command | Purpose |
 | --- | --- |
-| `init` | Write `reposhield.config.json` |
+| `init` | Write `reposhield.config.json`. Refuses to overwrite an existing file. |
+| `init --yes` | Keep every npm script as `reposhield:init:original:*` and add scan wrappers. |
 | `scan` | Inspect the repository. Default mode is `audit`. |
-| `report` | Print a saved JSON report |
-| `doctor` | Check that Git and the config are usable |
-| `recover` | Show a recovery plan, or branch from a trusted commit |
+| `run` | Scan first. Start the command after `--` only when policy passes. |
+| `report` | Print a saved JSON report as text. |
+| `doctor` | Check Node.js 18+, Git, the repository, and the config. |
+| `recover` | Show a plan (`--inspect`), branch from a trusted commit (`--to`), or create a revert commit (`--revert`). |
+| `recovery inspect` | Read-only recovery plan. Does not reset, revert, or delete. |
+| `file <path>` | Scan one file. Refuses paths outside the root. |
+| `baseline create` | Write `.reposhield-baseline.json`. Critical findings stay unaccepted unless `--include-critical` is set. |
+| `baseline compare` | Show findings the baseline has not accepted. |
+| `monitor` | Re-scan until you stop it. `--interval <seconds>` defaults to 30. |
+| `rules` | List detection rules. |
 
-Useful `scan` flags: `--root`, `--severity`, `--format text\|json`, `--output`, `--no-cache`, `--quiet`, `--history`.
+`init` and `doctor` accept `--root <path>`. The default is the current directory.
+
+`scan` flags:
+
+| Flag | Purpose |
+| --- | --- |
+| `--root <path>` | Repository to scan. Default is the current directory. |
+| `--mode <mode>` | `audit`, `strict`, `ci`, `changed`, or `monitor`. Default is `audit`. |
+| `--changed` | Same as `--mode changed`. |
+| `--base <sha>` | Trusted commit or branch for a changed scan. |
+| `--severity <level>` | Lowest severity to report: `critical`, `high`, `medium`, `low`, or `info`. Default is `info`. |
+| `--format <format>` | `text`, `json`, or `sarif`. Default is `text`. |
+| `--output <file>` | Write the report to this file. |
+| `--fail-on <severity>` | `info`, `low`, `medium`, `high`, or `critical`. |
+| `--remove` | Remove matched critical VS Code tasks and npm scripts, then preview source files. |
+| `--remove-source` | With `--remove --yes`, delete those source files. |
+| `--yes` | Confirm source deletion. On `init`, write the script changes. |
+| `--history` | Include recent Git commit history. |
+| `--no-cache` | Do not reuse a cached result. |
+| `--quiet` | Hide progress output. |
+
+`report` reads `--input <file>`. The default file is `reposhield-report.json`.
+
+`recover` flags:
+
+| Flag | Purpose |
+| --- | --- |
+| `--inspect` | Print the recovery plan. Does not change the repository. |
+| `--to <sha>` | Create a local recovery branch from that commit. Asks before it writes. Does not push. |
+| `--revert <sha>` | Create a revert commit for that SHA. Creates a backup branch and asks before it writes. |
+| `--root <path>` | Repository to inspect. Default is the current directory. |
 
 ### From code
 

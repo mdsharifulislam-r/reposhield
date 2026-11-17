@@ -54,7 +54,7 @@ describe('Integration — clean() API', () => {
     expect(totalIssues).toBeGreaterThan(0);
   });
 
-  test('audit mode never sets policyViolation=true', async () => {
+  test('audit mode sets policyViolation when critical findings exist', async () => {
     const summary = await clean({
       root: MALICIOUS_FIXTURES,
       mode: 'audit',
@@ -62,8 +62,8 @@ describe('Integration — clean() API', () => {
       noCache: true,
     });
 
-    // Audit mode should NEVER block, regardless of findings
-    expect(summary.policyViolation).toBe(false);
+    expect(summary.policyViolation).toBe(true);
+    expect(summary.policyViolationReasons.length).toBeGreaterThan(0);
   });
 
   test('no findings in totally empty directory', async () => {
