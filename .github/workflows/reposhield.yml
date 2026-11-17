@@ -1,0 +1,118 @@
+name: RepoShield Security Scan
+
+# RepoShield CI/CD Integration
+# ─────────────────────────────
+# This workflow performs security scanning without:
+# - Executing target project lifecycle scripts
+# - Exposing write tokens to PR code
+# - Making automatic commits or force-pushes
+# - Running vulnerable project dependencies
+#
+# Permissions follow least-privilege principle.
+# Secrets are never logged or exposed in reports.
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    # Run full scan weekly on Monday at 02:00 UTC
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: read
+  # security-events: write  # Uncomment if uploading SARIF to GitHub Advanced Security
+
+jobs:
+  reposhield-scan:
+    name: RepoShield Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 1. Checkout — use the PR head but capture the base SHA for change-based scanning
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch enough history for PR base comparison
+          fetch-depth: 0
+
+      # 2. Set up Node.js (use LTS)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. Install RepoShield WITHOUT executing project lifecycle scripts
+      #    Using --ignore-scripts prevents malicious postinstall from running
+      - name: Install RepoShield
+        run: |
+          npm install --ignore-scripts --save-dev reposhield-scan
+        env:
+          # Do not pass repository secrets here
+          NODE_ENV: ci
+
+      # 4. Determine scan mode and base SHA
+      - name: Set scan base SHA
+        id: scan-config
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "mode=changed" >> $GITHUB_OUTPUT
+            echo "base=${{ github.event.pull_request.base.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "mode=ci" >> $GITHUB_OUTPUT
+            echo "base=" >> $GITHUB_OUTPUT
+          fi
+
+      # 5. Run the security scan
+      #    Note: scan does NOT install or execute the project's dependencies
+      - name: Run RepoShield scan
+        id: reposhield
+        run: |
+          if [ -n "${{ steps.scan-config.outputs.base }}" ]; then
+            npx reposhield-scan scan \
+              --mode ${{ steps.scan-config.outputs.mode }} \
+              --base ${{ steps.scan-config.outputs.base }} \
+              --format json \
+              --output reposhield-report.json \
+              --severity info
+          else
+            npx reposhield-scan scan \
+              --mode ${{ steps.scan-config.outputs.mode }} \
+              --format json \
+              --output reposhield-report.json \
+              --severity info
+          fi
+        continue-on-error: true
+
+      # 6. Display human-readable summary
+      - name: Display scan report
+        run: |
+          npx reposhield-scan report --input reposhield-report.json
+        continue-on-error: true
+
+      # 7. Upload the JSON report as artifact
+      #    IMPORTANT: The report must not contain full secret values
+      #    RepoShield redacts secrets before including them in reports
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reposhield-security-report
+          path: reposhield-report.json
+          retention-days: 30
+
+      # 8. Fail the workflow if policy was violated
+      #    This step reads the exit code from the scan step
+      - name: Check policy result
+        run: |
+          if [ "${{ steps.reposhield.outcome }}" = "failure" ]; then
+            echo "❌ RepoShield policy violation detected."
+            echo "Review the security report artifact for details."
+            echo ""
+            echo "To suppress a false positive, add an entry to reposhield.config.json:"
+            echo '  { "ruleId": "RS-AST-XXX", "reason": "Documented justification", "reviewer": "username" }'
+            exit 1
+          fi
+          echo "✅ RepoShield scan passed"

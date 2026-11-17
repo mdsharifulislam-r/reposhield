@@ -1,0 +1,31 @@
+# RepoShield .gitignore
+
+# Build outputs
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Test outputs
+coverage/
+*.lcov
+
+# Scan reports (may contain redacted secrets — keep out of git)
+reposhield-report.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# TypeScript cache
+*.tsbuildinfo
+
+# npm
+.npm/

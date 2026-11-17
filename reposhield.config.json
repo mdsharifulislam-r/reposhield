@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "_comment": "RepoShield configuration. See https://github.com/reposhield/reposhield for full documentation.",
+  "exclude": [
+    "dist/",
+    "build/",
+    "coverage/",
+    ".git/",
+    "node_modules/"
+  ],
+  "suppressions": [],
+  "policy": {
+    "blockOnCritical": true,
+    "blockOnHigh": true,
+    "blockOnMedium": false,
+    "blockOnSecrets": true,
+    "blockOnDependencyFindings": "high"
+  }
+}
