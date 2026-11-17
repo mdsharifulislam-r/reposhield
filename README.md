@@ -83,13 +83,13 @@ console.log(`policy violation: ${summary.policyViolation}`);
 
 ## Scan modes and exit codes
 
-| Mode | What it does | Can fail CI |
+| Mode | What it does | Can fail the run |
 | --- | --- | --- |
-| `audit` | Report only | No |
+| `audit` | Report every finding. Critical and high still violate policy | Yes |
 | `strict` | Enforce the configured policy | Yes |
 | `ci` | Same enforcement, for automation | Yes |
-| `changed` | Only files changed since `--base` | Yes, in CI |
-| `monitor` | Local watch | No |
+| `changed` | Only files changed since `--base` | Yes |
+| `monitor` | Local watch. Critical and high still violate policy | Yes |
 
 | Exit code | Meaning |
 | --- | --- |
